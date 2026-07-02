@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Play, RefreshCw, Trash2 } from 'lucide-react';
 import type { ArrangementSummary, ProjectMeta, SourceMeta } from '@ytx/shared';
 import {
   deleteArrangement as apiDeleteArrangement,
@@ -100,7 +101,7 @@ export default function LibraryPanel({
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0 }}>Library</h2>
         <button className="btn ghost" onClick={() => void refresh()}>
-          ↻ Refresh
+          <RefreshCw size={14} /> Refresh
         </button>
       </div>
 
@@ -124,7 +125,7 @@ export default function LibraryPanel({
               </div>
               <div className="lib-actions">
                 <a className="btn secondary" href={sourceAudioUrl(backendUrl, s.id)} target="_blank" rel="noreferrer">
-                  ▶ Open
+                  <Play size={14} /> Open
                 </a>
                 <button className="btn" onClick={() => onSplitSource(s)}>
                   Split
@@ -138,7 +139,7 @@ export default function LibraryPanel({
                     void refresh();
                   }}
                 >
-                  ✕
+                  <Trash2 size={14} />
                 </button>
               </div>
             </div>
@@ -171,7 +172,7 @@ export default function LibraryPanel({
                     void refresh();
                   }}
                 >
-                  ✕
+                  <Trash2 size={14} />
                 </button>
               </div>
             </div>
@@ -203,7 +204,7 @@ export default function LibraryPanel({
                     void refresh();
                   }}
                 >
-                  ✕
+                  <Trash2 size={14} />
                 </button>
               </div>
             </div>

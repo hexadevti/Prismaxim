@@ -2,6 +2,27 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  AlertTriangle,
+  Check,
+  Circle,
+  ClipboardPaste,
+  Copy,
+  Download,
+  Gauge,
+  Hand,
+  Music,
+  Music4,
+  Play,
+  Pause,
+  Save,
+  Scissors,
+  SkipBack,
+  Split,
+  Square,
+  Trash2,
+  X,
+} from 'lucide-react';
+import {
   clipEnd,
   cloneProject,
   makeAudioBuffer,
@@ -1118,7 +1139,7 @@ export default function Editor({
       <div className="editor-transport">
         <div className="tp-group">
           <button className="btn secondary tp-btn" onClick={() => seekTo(0)} title="To start">
-            ⏮
+            <SkipBack size={16} />
           </button>
           <button
             className="btn tp-btn"
@@ -1126,14 +1147,14 @@ export default function Editor({
             disabled={!engine}
             title="Play / Pause (Space)"
           >
-            {playing ? '⏸' : '▶'}
+            {playing ? <Pause size={16} /> : <Play size={16} />}
           </button>
           <button
             className={`btn tp-btn rec${recording ? ' on' : ''}`}
             onClick={toggleRecord}
             title={recording ? 'Stop recording' : 'Record (into armed track or a new take)'}
           >
-            {recording ? '⏹' : '●'}
+            {recording ? <Square size={13} fill="currentColor" /> : <Circle size={13} fill="currentColor" />}
           </button>
           <span className="time">
             {fmtTime(engineRef.current?.currentTime() ?? 0)} / {fmtTime(duration)}
@@ -1143,7 +1164,7 @@ export default function Editor({
         <div className="tp-group">
           <label className="dev checkbox" title="Metronome">
             <input type="checkbox" checked={metroOn} onChange={(e) => setMetroOn(e.target.checked)} />
-            🎵
+            <Music size={15} />
           </label>
           <div className="metro-group">
             <button className="btn ghost nudge" onClick={() => setBpm(Math.max(40, bpm - 1))} title="Slower">
@@ -1161,13 +1182,13 @@ export default function Editor({
               ＋
             </button>
             <button className="btn secondary" onClick={tapTempo} title="Tap in rhythm to set the tempo">
-              👆 Tap
+              <Hand size={14} /> Tap
             </button>
             <span className="hint">{bpm} BPM</span>
           </div>
           <span className="sep" />
           <label className="dev" title="Playback speed">
-            ⏩
+            <Gauge size={14} />
             <select value={rate} onChange={(e) => changeRate(Number(e.target.value))}>
               {[0.5, 0.75, 1, 1.25, 1.5, 2].map((r) => (
                 <option key={r} value={r}>
@@ -1199,7 +1220,7 @@ export default function Editor({
             onClick={() => setExportOpen(true)}
             title="Export the mix as an audio file"
           >
-            {exporting ? 'Exporting…' : '⬇ Export'}
+            {exporting ? 'Exporting…' : <><Download size={15} /> Export</>}
           </button>
           {backendUrl && (
             <button
@@ -1208,13 +1229,21 @@ export default function Editor({
               disabled={saveState === 'saving'}
               title="Save the editable project to the library"
             >
-              {saveState === 'saving'
-                ? 'Saving…'
-                : saveState === 'saved'
-                  ? '✓ Saved'
-                  : saveState === 'error'
-                    ? '⚠ Retry save'
-                    : '💾 Save'}
+              {saveState === 'saving' ? (
+                'Saving…'
+              ) : saveState === 'saved' ? (
+                <>
+                  <Check size={14} /> Saved
+                </>
+              ) : saveState === 'error' ? (
+                <>
+                  <AlertTriangle size={14} /> Retry save
+                </>
+              ) : (
+                <>
+                  <Save size={15} /> Save
+                </>
+              )}
             </button>
           )}
         </div>
@@ -1330,7 +1359,9 @@ export default function Editor({
         <div className="midi-overlay">
           <div className="midi-progress-card">
             <div className="phase-label">
-              <strong>🎹 Converting “{midiProgress.name}” to MIDI…</strong>
+              <strong className="mp-title">
+                <Music4 size={16} /> Converting “{midiProgress.name}” to MIDI…
+              </strong>
               <span className="engine">{midiProgress.percent}%</span>
             </div>
             <div className="bar">
@@ -1350,7 +1381,7 @@ export default function Editor({
             <div className="modal-head">
               <span>Clean MIDI — {cleanTrack.name}</span>
               <button className="modal-close" onClick={() => setCleanTrack(null)}>
-                ✕
+                <X size={16} />
               </button>
             </div>
             <div className="modal-body">
@@ -1437,7 +1468,7 @@ export default function Editor({
             <div className="modal-head">
               <span>Audio → MIDI — {transcribeTrack.name}</span>
               <button className="modal-close" onClick={() => setTranscribeTrack(null)}>
-                ✕
+                <X size={16} />
               </button>
             </div>
             <div className="modal-body">
@@ -1538,7 +1569,7 @@ export default function Editor({
             <div className="modal-head">
               <span>Export mix</span>
               <button className="modal-close" onClick={() => setExportOpen(false)}>
-                ✕
+                <X size={16} />
               </button>
             </div>
             <div className="modal-body">
@@ -1582,7 +1613,7 @@ export default function Editor({
                     disabled={exporting !== null}
                     onClick={() => doExport(exportParams.format, exportParams.bitrate)}
                   >
-                    {exporting ? 'Exporting…' : '⬇ Export'}
+                    {exporting ? 'Exporting…' : <><Download size={15} /> Export</>}
                   </button>
                   <button className="btn ghost" onClick={() => setExportOpen(false)}>
                     Cancel
@@ -1606,20 +1637,24 @@ export default function Editor({
           />
           <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
             <button onClick={() => { doCut(); setMenu(null); }} disabled={!hasSelection}>
-              ✂ Cut
+              <Scissors size={14} /> Cut
             </button>
             <button onClick={() => { doCopy(); setMenu(null); }} disabled={!hasSelection}>
-              ⧉ Copy
+              <Copy size={14} /> Copy
             </button>
             <button onClick={() => { doPaste(); setMenu(null); }} disabled={!hasClipboard}>
-              📋 Paste
+              <ClipboardPaste size={14} /> Paste
             </button>
-            <button onClick={() => { doSplit(); setMenu(null); }}>⎘ Split at playhead</button>
+            <button onClick={() => { doSplit(); setMenu(null); }}>
+              <Split size={14} /> Split at playhead
+            </button>
             <div className="ctx-sep" />
             <button onClick={() => { doDelete(); setMenu(null); }} disabled={!hasSelection}>
-              🗑 Delete selection
+              <Trash2 size={14} /> Delete selection
             </button>
-            <button onClick={() => deleteTrack(menu.trackId)}>🗑 Delete track</button>
+            <button onClick={() => deleteTrack(menu.trackId)}>
+              <Trash2 size={14} /> Delete track
+            </button>
             {(() => {
               const mt = project.tracks.find((t) => t.id === menu.trackId);
               return mt?.midi?.length ? (
@@ -1631,7 +1666,7 @@ export default function Editor({
                       setMenu(null);
                     }}
                   >
-                    ⬇ Export MIDI (.mid)
+                    <Download size={14} /> Export MIDI (.mid)
                   </button>
                 </>
               ) : null;

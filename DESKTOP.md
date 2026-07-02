@@ -48,6 +48,30 @@ unpacked from the asar automatically; `web/out` is shipped as an app resource.
 > Build the Windows installer **on Windows** (or a Windows CI runner). The native `onnxruntime-node`
 > binary in the package must match the target OS/arch.
 
+## Code signing (removes the SmartScreen warning)
+
+The installer is **unsigned** by default, so Windows SmartScreen warns on first run
+("More info → Run anyway"). electron-builder signs automatically when it finds a certificate in the
+environment — **no config change needed**, just set two env vars before building:
+
+```powershell
+# PowerShell (Windows), from desktop/
+$env:CSC_LINK = "C:\path\to\certificate.pfx"   # path to the .pfx (or a base64 string of it)
+$env:CSC_KEY_PASSWORD = "the-pfx-password"
+npm run dist                                    # now produces a signed installer
+```
+
+Getting a certificate:
+
+- **Self-signed** — for testing the signing flow only; does **not** clear the warning for other
+  users. Create with `New-SelfSignedCertificate` and export to `.pfx`.
+- **Trusted OV/EV cert** — from a CA (DigiCert, Sectigo, SSL.com…). Since mid-2023 the private key
+  must live on a **hardware token/HSM** or a **cloud signing service**, so a plain `.pfx` usually
+  isn't issued anymore. For those, sign via **Azure Trusted Signing** (`build.win.azureSignOptions`
+  in `desktop/package.json`, no hardware) or a custom `sign` hook that calls `signtool` against the
+  token/service. An **EV** cert is trusted by SmartScreen immediately; an **OV** cert earns
+  reputation gradually.
+
 ## Notes & known rough edges
 
 - **First separation** downloads the 258 MB `htdemucs_6s.onnx` model into `userData` (one time).
@@ -58,4 +82,4 @@ unpacked from the asar automatically; `web/out` is shipped as an app resource.
   isolation and AudioWorklet recorder all work like in Chrome/Edge.
 - If the backend fails to boot, the window won't open (the bundled server currently `exit`s on a
   fatal startup error). Run `npm run desktop:dev` from a terminal to see the backend logs.
-- Optional niceties not wired yet: app icon (`build.win.icon`), auto-update, code signing.
+- Optional niceties not wired yet: app icon (`build.win.icon`) and auto-update.

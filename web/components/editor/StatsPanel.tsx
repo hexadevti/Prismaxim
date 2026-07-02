@@ -1,5 +1,6 @@
 'use client';
 
+import { X } from 'lucide-react';
 import { STEM_META } from '@ytx/shared';
 import type { MusicStats } from '@/lib/editor/musicStats';
 
@@ -37,7 +38,7 @@ export default function StatsPanel({ stats, onClose }: { stats: MusicStats; onCl
       <div className="stats-head">
         <span>Music stats</span>
         <button className="btn ghost" onClick={onClose}>
-          ✕ Hide
+          <X size={14} /> Hide
         </button>
       </div>
       <div className="stats-row">

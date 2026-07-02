@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { Mic } from 'lucide-react';
 import type { DeviceOption } from '@/lib/editor/devices';
 
 export interface RecordBarProps {
@@ -44,7 +45,7 @@ export default function RecordBar(p: RecordBarProps) {
       <span className="io-label">Audio I/O</span>
       {!p.devicesReady ? (
         <button className="btn secondary" onClick={p.onEnableDevices}>
-          🎙 Enable input devices
+          <Mic size={15} /> Enable input devices
         </button>
       ) : (
         <>

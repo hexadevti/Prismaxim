@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AudioLines, ChevronsLeft, Download, Library, Menu, Settings, X } from 'lucide-react';
 import type {
   ArrangementSummary,
   JobConfig,
@@ -186,10 +187,12 @@ export default function Home() {
           title={navOpen ? 'Collapse menu' : 'Expand menu'}
           aria-label={navOpen ? 'Collapse menu' : 'Expand menu'}
         >
-          {navOpen ? '«' : '☰'}
+          {navOpen ? <ChevronsLeft size={18} /> : <Menu size={18} />}
         </button>
         <div className="brand">
-          <span className="brand-icon">🎛</span>
+          <span className="brand-icon">
+            <AudioLines size={18} />
+          </span>
           <span className="label">YTextractor</span>
         </div>
         <nav>
@@ -200,7 +203,15 @@ export default function Home() {
               onClick={() => setModal(v)}
               title={TITLES[v]}
             >
-              <span className="nav-icon">{v === 'import' ? '⬇' : v === 'library' ? '📚' : '⚙'}</span>
+              <span className="nav-icon">
+                {v === 'import' ? (
+                  <Download size={17} />
+                ) : v === 'library' ? (
+                  <Library size={17} />
+                ) : (
+                  <Settings size={17} />
+                )}
+              </span>
               <span className="label">{TITLES[v]}</span>
             </button>
           ))}
@@ -233,7 +244,7 @@ export default function Home() {
             <div className="modal-head">
               <span>{TITLES[modal]}</span>
               <button className="modal-close" onClick={closeModal} title="Close">
-                ✕
+                <X size={16} />
               </button>
             </div>
             <div className="modal-body">{modalInner(modal)}</div>

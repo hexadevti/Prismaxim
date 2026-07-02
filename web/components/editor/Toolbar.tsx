@@ -1,5 +1,22 @@
 'use client';
 
+import {
+  BarChart3,
+  ClipboardPaste,
+  Copy,
+  ListPlus,
+  Maximize2,
+  Music2,
+  Redo2,
+  Scissors,
+  Split,
+  Timer,
+  Trash2,
+  Undo2,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
+
 export interface ToolbarProps {
   // edit
   onCut: () => void;
@@ -32,54 +49,54 @@ export default function Toolbar(p: ToolbarProps) {
       {/* Edit tools */}
       <div className="tool-group">
         <button className="btn secondary" onClick={p.onCut} disabled={!p.hasSelection} title="Cut (Ctrl+X)">
-          ✂ Cut
+          <Scissors size={14} /> Cut
         </button>
         <button className="btn secondary" onClick={p.onCopy} disabled={!p.hasSelection} title="Copy (Ctrl+C)">
-          ⧉ Copy
+          <Copy size={14} /> Copy
         </button>
         <button className="btn secondary" onClick={p.onPaste} disabled={!p.canPaste} title="Paste (Ctrl+V)">
-          📋 Paste
+          <ClipboardPaste size={14} /> Paste
         </button>
         <button className="btn secondary" onClick={p.onSplit} title="Split at playhead (S)">
-          ⎘ Split
+          <Split size={14} /> Split
         </button>
         <button className="btn secondary" onClick={p.onDelete} disabled={!p.hasSelection} title="Delete (Del)">
-          🗑 Delete
+          <Trash2 size={14} /> Delete
         </button>
         <button className="btn ghost" onClick={p.onUndo} disabled={!p.canUndo} title="Undo (Ctrl+Z)">
-          ↶
+          <Undo2 size={15} />
         </button>
         <button className="btn ghost" onClick={p.onRedo} disabled={!p.canRedo} title="Redo (Ctrl+Y)">
-          ↷
+          <Redo2 size={15} />
         </button>
       </div>
 
       {/* View */}
       <div className="tool-group">
         <button className="btn ghost" onClick={p.onZoomOut} title="Zoom out">
-          −
+          <ZoomOut size={15} />
         </button>
         <button className="btn ghost" onClick={p.onFit} title="Fit all tracks to view">
-          ⤢ Fit
+          <Maximize2 size={14} /> Fit
         </button>
         <button className="btn ghost" onClick={p.onZoomIn} title="Zoom in">
-          +
+          <ZoomIn size={15} />
         </button>
         <button className="btn secondary" onClick={p.onAddTrack} title="Add an empty track">
-          ＋ Track
+          <ListPlus size={15} /> Track
         </button>
       </div>
 
       {/* Analysis */}
       <div className="tool-group">
         <button className="btn ghost" onClick={p.onDetectTempo} disabled={p.analyzing !== null}>
-          {p.analyzing === 'tempo' ? 'Detecting…' : '⏱ Detect tempo'}
+          {p.analyzing === 'tempo' ? 'Detecting…' : <><Timer size={14} /> Detect tempo</>}
         </button>
         <button className="btn ghost" onClick={p.onDetectChords} disabled={p.analyzing !== null}>
-          {p.analyzing === 'chords' ? 'Detecting…' : '🎼 Detect chords'}
+          {p.analyzing === 'chords' ? 'Detecting…' : <><Music2 size={14} /> Detect chords</>}
         </button>
         <button className="btn ghost" onClick={p.onStats} disabled={p.analyzing !== null}>
-          {p.analyzing === 'stats' ? 'Analyzing…' : '📊 Stats'}
+          {p.analyzing === 'stats' ? 'Analyzing…' : <><BarChart3 size={14} /> Stats</>}
         </button>
         {p.chordCount > 0 && <span className="hint">{p.chordCount} chords</span>}
       </div>

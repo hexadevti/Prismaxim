@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Circle, Eraser, Music4, Trash2 } from 'lucide-react';
 import { clipEnd, type EditorTrack, type MidiNote, type Selection } from '@/lib/editor/model';
 import { computeClipPeaks } from '@/lib/editor/peaks';
 import { drawSpectrum, freqBuffer } from '@/lib/mixer/spectrum';
@@ -344,10 +345,10 @@ export default function TimelineTrack({
             title="Arm for recording"
             onClick={() => onToggleArm(track.id)}
           >
-            ●
+            <Circle size={11} fill="currentColor" />
           </button>
           <button className="mini" title="Delete track (undoable)" onClick={() => onDeleteTrack(track.id)}>
-            🗑
+            <Trash2 size={13} />
           </button>
           {track.clips.length > 0 && (
             <button
@@ -356,7 +357,7 @@ export default function TimelineTrack({
               disabled={midiBusy}
               onClick={() => onTranscribe(track.id)}
             >
-              🎹
+              <Music4 size={13} />
             </button>
           )}
         </div>
@@ -428,7 +429,7 @@ export default function TimelineTrack({
               title="Clean up MIDI notes (noise removal, monophonic/bass)…"
               onClick={() => onOpenClean(track.id)}
             >
-              🧹 Clean…
+              <Eraser size={13} /> Clean…
             </button>
           </div>
         )}
