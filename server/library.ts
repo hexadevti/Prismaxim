@@ -11,8 +11,8 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rm, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { ProjectMeta, SourceMeta, StemName, StemSet } from '@ytx/shared';
-import { STEM_NAMES } from '@ytx/shared';
+import type { ProjectMeta, SourceMeta, StemName, StemSet } from '@prismaxim/shared';
+import { STEM_NAMES } from '@prismaxim/shared';
 import { LIBRARY_DIR } from './config';
 import { encodeWav } from './decode';
 
@@ -51,6 +51,7 @@ export interface SaveSourceInput {
   viewCount?: number;
   likeCount?: number;
   uploadDate?: string;
+  captureMs?: number;
 }
 
 export async function saveSource(input: SaveSourceInput): Promise<SourceMeta> {
@@ -76,6 +77,7 @@ export async function saveSource(input: SaveSourceInput): Promise<SourceMeta> {
     viewCount: input.viewCount,
     likeCount: input.likeCount,
     uploadDate: input.uploadDate,
+    captureMs: input.captureMs,
   };
   await writeFile(join(dir, 'meta.json'), JSON.stringify(meta, null, 2));
   return meta;
@@ -123,7 +125,7 @@ export async function deleteSource(id: string): Promise<void> {
 
 export async function saveProject(
   set: StemSet,
-  meta: { title: string; sourceId?: string; engine: string },
+  meta: { title: string; sourceId?: string; engine: string; separationMs?: number },
 ): Promise<ProjectMeta> {
   await ensureDirs();
   const id = randomUUID();
@@ -143,6 +145,7 @@ export async function saveProject(
     lengthSamples: set.length,
     stems: set.stems.map((s) => s.name),
     engine: meta.engine,
+    separationMs: meta.separationMs,
   };
   await writeFile(join(dir, 'meta.json'), JSON.stringify(projectMeta, null, 2));
   return projectMeta;

@@ -1,7 +1,7 @@
 'use client';
 
 import { X } from 'lucide-react';
-import { STEM_META } from '@ytx/shared';
+import { STEM_META } from '@prismaxim/shared';
 import type { MusicStats } from '@/lib/editor/musicStats';
 
 function fmtDur(s: number): string {

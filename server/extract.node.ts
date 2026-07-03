@@ -7,7 +7,7 @@
  */
 
 import { Innertube } from 'youtubei.js';
-import type { ExtractInfo } from '@ytx/shared';
+import type { ExtractInfo } from '@prismaxim/shared';
 import { extractWithYtDlp } from './ytdlp';
 
 let innertube: Promise<Innertube> | null = null;

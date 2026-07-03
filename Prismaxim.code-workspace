@@ -1,0 +1,11 @@
+{
+  "folders": [
+    {
+      "path": ".",
+      "name": "Prismaxim"
+    }
+  ],
+  "settings": {
+    "window.title": "${dirty}Prismaxim${separator}${activeEditorShort}"
+  }
+}

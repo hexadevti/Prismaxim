@@ -16,7 +16,7 @@ export const DEFAULT_BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8787';
 
 /** Cache Storage bucket for the downloaded model weights. */
-export const MODEL_CACHE = 'ytx-models-v1';
+export const MODEL_CACHE = 'prismaxim-models-v1';
 
 /** Basic Pitch (audio→MIDI) TF.js model, self-hosted under public/ (same-origin). */
 export const BASIC_PITCH_MODEL_URL =

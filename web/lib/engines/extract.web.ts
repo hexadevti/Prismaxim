@@ -9,7 +9,7 @@
  */
 
 import { Innertube } from 'youtubei.js';
-import type { ProgressUpdate } from '@ytx/shared';
+import type { ProgressUpdate } from '@prismaxim/shared';
 
 export function parseVideoId(url: string): string | null {
   try {

@@ -8,7 +8,7 @@ import type {
   ProgressUpdate,
   ProjectMeta,
   SourceMeta,
-} from '@ytx/shared';
+} from '@prismaxim/shared';
 import StartPanel from '@/components/StartPanel';
 import LibraryPanel from '@/components/LibraryPanel';
 import OptionsPanel from '@/components/OptionsPanel';
@@ -45,7 +45,7 @@ export default function Home() {
 
   useEffect(() => {
     try {
-      const v = localStorage.getItem('ytx-nav-open');
+      const v = localStorage.getItem('prismaxim-nav-open');
       if (v !== null) setNavOpen(v === '1');
     } catch {
       /* ignore */
@@ -56,7 +56,7 @@ export default function Home() {
     setNavOpen((o) => {
       const n = !o;
       try {
-        localStorage.setItem('ytx-nav-open', n ? '1' : '0');
+        localStorage.setItem('prismaxim-nav-open', n ? '1' : '0');
       } catch {
         /* ignore */
       }
@@ -193,7 +193,7 @@ export default function Home() {
           <span className="brand-icon">
             <AudioLines size={18} />
           </span>
-          <span className="label">YTextractor</span>
+          <span className="label">Prismaxim</span>
         </div>
         <nav>
           {(['import', 'library', 'options'] as View[]).map((v) => (

@@ -6,7 +6,7 @@
  * enough for relative comparison, not broadcast measurement.
  */
 
-import type { StemName } from '@ytx/shared';
+import type { StemName } from '@prismaxim/shared';
 import { detectKey, detectTempo, tempoStability, toMono } from './analyze';
 import { renderProject } from './export';
 import { totalDuration, type EditorProject, type EditorTrack } from './model';

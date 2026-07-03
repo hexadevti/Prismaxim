@@ -3,7 +3,7 @@
  * 44.1 kHz stereo layout the Demucs model expects.
  */
 
-import { MODEL_CHANNELS, MODEL_SAMPLE_RATE, type StemSet, STEM_NAMES } from '@ytx/shared';
+import { MODEL_CHANNELS, MODEL_SAMPLE_RATE, type StemSet, STEM_NAMES } from '@prismaxim/shared';
 
 export interface DecodedAudio {
   channels: Float32Array[]; // length MODEL_CHANNELS

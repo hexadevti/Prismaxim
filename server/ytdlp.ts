@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process';
 import { access, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import ffmpegStatic from 'ffmpeg-static';
-import type { ExtractInfo } from '@ytx/shared';
+import type { ExtractInfo } from '@prismaxim/shared';
 import { TMP_DIR, YTDLP_BIN, YTDLP_DIR } from './config';
 
 // In a packaged Electron app the binary is unpacked from the asar; ffmpeg-static

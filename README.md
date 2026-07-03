@@ -1,4 +1,4 @@
-# 🎛 YTextractor — Stem Splitter & Multitrack Editor
+# 🎛 Prismaxim — Stem Splitter & Multitrack Editor
 
 Extract audio from a **YouTube link** or an **uploaded file**, split it into 6 stems with
 **Demucs (`htdemucs_6s`)**, and work with them in a **clip-based multitrack editor** — per-track
@@ -71,7 +71,7 @@ npm run dist                   # build the Windows installer → desktop/release
 ```
 
 The library, saved projects, the ~258 MB separation model and the yt-dlp binary live under the
-app's per-user data (`%APPDATA%/YTextractor`). The backend runs in a separate process, so heavy
+app's per-user data (`%APPDATA%/Prismaxim`). The backend runs in a separate process, so heavy
 work (import, separation) never freezes the window.
 
 ### Quickest path (no backend)

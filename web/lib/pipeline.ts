@@ -1,17 +1,16 @@
 /**
- * Job orchestrator: turns a JobConfig (+ optional uploaded file) into a StemSet,
- * choosing browser/backend engines for extraction and separation as configured.
+ * Job orchestrator: turns a JobConfig (+ optional uploaded file) into a StemSet.
  *
- * Backend paths persist to the library: YouTube imports become saved sources,
- * and backend separations become saved projects.
+ * Stem separation always runs on the native backend (the browser engine was
+ * removed — it was far too slow). YouTube extraction may still run in the browser
+ * (through the backend proxy) or on the backend; either way the audio is then
+ * separated on the backend and the project is saved to the library.
  */
 
-import type { JobConfig, ProgressUpdate, StemSet } from '@ytx/shared';
-import { decodeToModelAudio } from './audio';
+import type { JobConfig, ProgressUpdate, StemSet } from '@prismaxim/shared';
 import { separateFromSource, separateUpload } from './engines/client';
 import { extractInBrowser } from './engines/extract.web';
-import { separateInBrowser } from './engines/separation.web';
-import { getSourceAudioBytes, importYouTube } from './library';
+import { importYouTube } from './library';
 
 export interface JobResult {
   set: StemSet;
@@ -25,46 +24,28 @@ export async function runJob(
   file: File | null,
   onProgress: (p: ProgressUpdate) => void,
 ): Promise<JobResult> {
-  const { input, separation, backendBaseUrl } = config;
-  const backendSep = separation === 'backend';
-
-  const browserSeparate = async (bytes: ArrayBuffer): Promise<StemSet> => {
-    onProgress({ phase: 'loading-model', percent: 0, message: 'Preparing model…' });
-    const audio = await decodeToModelAudio(bytes);
-    return separateInBrowser(audio, onProgress);
-  };
+  const { input, backendBaseUrl } = config;
 
   if (input.kind === 'file') {
     if (!file) throw new Error('No file provided.');
     const title = file.name.replace(/\.[^.]+$/, '');
     const bytes = await file.arrayBuffer();
-    if (backendSep) {
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'audio';
-      const set = await separateUpload(backendBaseUrl, bytes, { title, ext }, onProgress);
-      return { set, title, persisted: true };
-    }
-    return { set: await browserSeparate(bytes), title, persisted: false };
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'audio';
+    const set = await separateUpload(backendBaseUrl, bytes, { title, ext }, onProgress);
+    return { set, title, persisted: true };
   }
 
-  // YouTube
+  // YouTube — extract (backend or browser-via-proxy), then separate on the backend.
   if (input.extraction === 'backend') {
     onProgress({ phase: 'extracting', percent: 20, message: 'Importing on backend…' });
     const source = await importYouTube(backendBaseUrl, input.url);
     onProgress({ phase: 'extracting', percent: 100, message: `Imported "${source.title}"` });
-    if (backendSep) {
-      const set = await separateFromSource(backendBaseUrl, source.id, onProgress);
-      return { set, title: source.title, persisted: true };
-    }
-    const bytes = await getSourceAudioBytes(backendBaseUrl, source.id);
-    return { set: await browserSeparate(bytes), title: source.title, persisted: false };
+    const set = await separateFromSource(backendBaseUrl, source.id, onProgress);
+    return { set, title: source.title, persisted: true };
   }
 
-  // Browser extraction (through the backend proxy)
   const bytes = await extractInBrowser(input.url, backendBaseUrl, onProgress);
   const title = input.url;
-  if (backendSep) {
-    const set = await separateUpload(backendBaseUrl, bytes, { title, ext: 'webm' }, onProgress);
-    return { set, title, persisted: true };
-  }
-  return { set: await browserSeparate(bytes), title, persisted: false };
+  const set = await separateUpload(backendBaseUrl, bytes, { title, ext: 'webm' }, onProgress);
+  return { set, title, persisted: true };
 }

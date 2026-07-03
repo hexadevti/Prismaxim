@@ -1,5 +1,5 @@
 /**
- * Optional Node backend for YTextractor.
+ * Optional Node backend for Prismaxim.
  *
  * Provides: backend YouTube extraction, a CORS proxy for browser youtubei.js,
  * native stem separation as an SSE job, and a persistent on-disk library
@@ -23,7 +23,7 @@ import {
   type SeparationSession,
   type StemName,
   type StemSet,
-} from '@ytx/shared';
+} from '@prismaxim/shared';
 import { BODY_LIMIT, HOST, PORT, WEB_DIR } from './config';
 import { decodePcm, encodeWav } from './decode';
 import { createNodeRuntime, ensureModel } from './separation.node';
@@ -87,11 +87,16 @@ async function runSeparation(
     const engine = createNodeRuntime().engine;
 
     setState(job, { phase: 'separating', percent: 0, engine });
+    const sepStart = Date.now();
+    // Overlap trades speed for a smoother segment cross-fade. 0.1 is ~15% fewer
+    // windows than Demucs' 0.25 default, with negligible audible difference.
+    const overlap = Math.min(Math.max(Number(process.env.SEPARATION_OVERLAP ?? 0.1), 0), 0.9);
     const set = await separateMixture(pcm.channels, session, {
-      overlap: 0.25,
+      overlap,
       onProgress: (f) =>
         setState(job, { phase: 'separating', percent: Math.round(f * 100), engine }),
     });
+    const separationMs = Date.now() - sepStart;
     job.stems = set;
 
     // Persist the project to the library.
@@ -101,6 +106,7 @@ async function runSeparation(
         title: meta.title,
         sourceId: meta.sourceId,
         engine,
+        separationMs,
       });
       projectId = project.id;
     } catch (e) {
@@ -181,7 +187,9 @@ async function main() {
   app.post('/library/import', async (req, reply) => {
     const body = parseJson<{ url: string }>(req.body);
     if (!body?.url) return reply.code(400).send('Missing url');
+    const captureStart = Date.now();
     const { bytes, info, ext, thumb } = await extractAudio(body.url);
+    const captureMs = Date.now() - captureStart;
     const source = await saveSource({
       bytes,
       title: info.title,
@@ -195,6 +203,7 @@ async function main() {
       viewCount: info.viewCount,
       likeCount: info.likeCount,
       uploadDate: info.uploadDate,
+      captureMs,
     });
     return reply.send(source);
   });
@@ -421,7 +430,13 @@ async function main() {
   }
 
   await app.listen({ port: PORT, host: HOST });
-  console.log(`YTextractor backend listening on http://localhost:${PORT}`);
+  console.log(`Prismaxim backend listening on http://localhost:${PORT}`);
+
+  // When launched as an Electron utility process, tell the parent we're listening
+  // (more reliable than the parent polling /health during a slow cold start).
+  const parentPort = (process as unknown as { parentPort?: { postMessage(m: unknown): void } })
+    .parentPort;
+  parentPort?.postMessage({ type: 'ready', port: PORT });
 }
 
 main().catch((err) => {

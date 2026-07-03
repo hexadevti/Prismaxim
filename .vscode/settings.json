@@ -1,0 +1,29 @@
+{
+  // Show "Prismaxim" in the title bar even though the folder is still named YTextractor.
+  "window.title": "${dirty}Prismaxim${separator}${activeEditorShort}",
+
+  // Use the workspace TypeScript (matches the version the build uses).
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+
+  // Keep build output and heavy assets out of search / file-watching.
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.next": true,
+    "**/out": true,
+    "desktop/dist": true,
+    "desktop/release": true,
+    "**/*.onnx": true,
+    "package-lock.json": true
+  },
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/.next/**": true,
+    "**/out/**": true,
+    "**/desktop/dist/**": true,
+    "**/desktop/release/**": true
+  },
+  "files.exclude": {
+    "**/.DS_Store": true
+  }
+}

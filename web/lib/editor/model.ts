@@ -8,7 +8,7 @@
  * makes undo/redo (snapshotting metadata) cheap.
  */
 
-import { STEM_META, type StemName, type StemSet } from '@ytx/shared';
+import { STEM_META, type StemName, type StemSet } from '@prismaxim/shared';
 
 export interface Clip {
   id: string;

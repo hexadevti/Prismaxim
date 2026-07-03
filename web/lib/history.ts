@@ -3,7 +3,7 @@
  * links can be re-used quickly. Independent of the backend library.
  */
 
-const KEY = 'ytx-url-history-v1';
+const KEY = 'prismaxim-url-history-v1';
 const MAX = 25;
 
 export interface HistoryEntry {

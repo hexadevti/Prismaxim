@@ -1,11 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type {
-  ExtractionEngine,
-  JobConfig,
-  SeparationEngine,
-} from '@ytx/shared';
+import type { ExtractionEngine, JobConfig } from '@prismaxim/shared';
 import { checkBackend } from '@/lib/engines/client';
 import { addToHistory, getHistory, removeFromHistory, type HistoryEntry } from '@/lib/history';
 
@@ -47,7 +43,6 @@ export default function StartPanel({ onStart, backendUrl }: StartPanelProps) {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [extraction, setExtraction] = useState<ExtractionEngine>('backend');
-  const [separation, setSeparation] = useState<SeparationEngine>('backend');
   const [backendUp, setBackendUp] = useState<boolean | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
@@ -56,9 +51,8 @@ export default function StartPanel({ onStart, backendUrl }: StartPanelProps) {
     setHistory(getHistory());
   }, []);
 
-  const needsBackend =
-    separation === 'backend' || (inputKind === 'youtube' && extraction === 'backend') ||
-    (inputKind === 'youtube' && extraction === 'browser'); // browser extraction needs the proxy
+  // Separation always runs on the backend, so the backend is always required.
+  const needsBackend = true;
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +80,7 @@ export default function StartPanel({ onStart, backendUrl }: StartPanelProps) {
         inputKind === 'file'
           ? { kind: 'file', fileName: file!.name }
           : { kind: 'youtube', url: url.trim(), extraction },
-      separation,
+      separation: 'backend',
       backendBaseUrl: backendUrl.replace(/\/$/, ''),
     };
     onStart(config, inputKind === 'file' ? file : null);
@@ -199,30 +193,13 @@ export default function StartPanel({ onStart, backendUrl }: StartPanelProps) {
         </div>
       )}
 
-      <h2 style={{ marginTop: 20 }}>2 · Separation engine</h2>
-      <div className="field">
-        <Segmented
-          value={separation}
-          onChange={setSeparation}
-          options={[
-            { value: 'backend', label: 'Backend (native)' },
-            { value: 'browser', label: 'Browser (WebGPU/WASM)' },
-          ]}
-        />
-        <p className="hint" style={{ marginTop: 8 }}>
-          {separation === 'browser'
-            ? 'Runs on your device — private, no server. The htdemucs_6s model is large (~258 MB): needs a WebGPU browser (Chrome/Edge) and plenty of memory, or it may fail with an out-of-memory error. First run downloads the model, then it is cached.'
-            : 'Recommended. Runs natively on the Node backend — reliable and fast (~seconds per 8 s of audio on CPU). Requires the Node server.'}
-        </p>
-      </div>
-
       {needsBackend && (
-        <p className={backendUp === false ? 'err' : 'hint'} style={{ marginBottom: 12 }}>
+        <p className={backendUp === false ? 'err' : 'hint'} style={{ marginTop: 16, marginBottom: 12 }}>
           {backendUp === null
-            ? 'Checking backend…'
+            ? 'Checking service…'
             : backendUp
-              ? '✓ Backend reachable'
-              : '✗ Backend not reachable — set the URL in Options, or use file upload + browser separation.'}
+              ? '✓ Separation service ready'
+              : '✗ Separation service not reachable — check the URL in Options.'}
         </p>
       )}
 

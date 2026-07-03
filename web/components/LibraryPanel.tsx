@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Play, RefreshCw, Trash2 } from 'lucide-react';
-import type { ArrangementSummary, ProjectMeta, SourceMeta } from '@ytx/shared';
+import type { ArrangementSummary, ProjectMeta, SourceMeta } from '@prismaxim/shared';
 import {
   deleteArrangement as apiDeleteArrangement,
   deleteProject as apiDeleteProject,
@@ -24,6 +24,15 @@ function fmtDate(iso: string): string {
 
 function fmtSize(bytes: number): string {
   return bytes > 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.round(bytes / 1e3)} KB`;
+}
+
+/** Format a duration in ms, or null when absent. */
+function fmtMs(ms?: number): string | null {
+  if (ms == null || !Number.isFinite(ms)) return null;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${String(Math.round(s % 60)).padStart(2, '0')}s`;
 }
 
 function fmtCount(n: number): string {
@@ -121,6 +130,7 @@ export default function LibraryPanel({
                 {sourceStats(s) && <div className="hint">{sourceStats(s)}</div>}
                 <div className="hint">
                   {s.origin} · {fmtDate(s.createdAt)} · {fmtSize(s.bytes)}
+                  {fmtMs(s.captureMs) && ` · captured in ${fmtMs(s.captureMs)}`}
                 </div>
               </div>
               <div className="lib-actions">
@@ -158,6 +168,7 @@ export default function LibraryPanel({
                 <strong>{p.title}</strong>
                 <div className="hint">
                   {p.stems.length} stems · {p.engine} · {fmtDate(p.createdAt)}
+                  {fmtMs(p.separationMs) && ` · separated in ${fmtMs(p.separationMs)}`}
                 </div>
               </div>
               <div className="lib-actions">

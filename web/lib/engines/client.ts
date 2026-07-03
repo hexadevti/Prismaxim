@@ -9,7 +9,7 @@ import {
   type SeparateEvent,
   type SeparateStartResponse,
   type StemSet,
-} from '@ytx/shared';
+} from '@prismaxim/shared';
 import { decodeToModelAudio, stemSetFromChannels } from '../audio';
 
 export async function checkBackend(baseUrl: string): Promise<boolean> {

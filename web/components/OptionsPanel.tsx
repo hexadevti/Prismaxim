@@ -37,16 +37,15 @@ export default function OptionsPanel({
         />
         <p className={up === false ? 'err' : 'hint'} style={{ marginTop: 6 }}>
           {up === null
-            ? 'Checking backend…'
+            ? 'Checking service…'
             : up
-              ? '✓ Backend reachable'
-              : '✗ Backend not reachable — start it with `npm run dev:server`, or work browser-only.'}
+              ? '✓ Service reachable'
+              : '✗ Service not reachable — restart the app (or start it with `npm run dev:server`).'}
         </p>
       </div>
       <p className="hint">
-        The backend powers YouTube import, native (faster) separation, the library, and saving
-        edited projects. Without it, use <strong>file upload</strong> + <strong>browser</strong>{' '}
-        separation — no server needed.
+        The local service powers YouTube import, native stem separation, the library, and saving
+        edited projects. It starts automatically with the app.
       </p>
     </div>
   );

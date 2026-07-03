@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { STEM_META, type StemName } from '@ytx/shared';
+import { STEM_META, type StemName } from '@prismaxim/shared';
 import type { MixerEngine } from '@/lib/mixer/engine';
 import { computePeaks, drawWaveform, type Peaks } from '@/lib/mixer/waveform';
 import { drawSpectrum, freqBuffer } from '@/lib/mixer/spectrum';

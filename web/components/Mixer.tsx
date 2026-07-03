@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { PRESETS, STEM_NAMES, type StemSet } from '@ytx/shared';
+import { PRESETS, STEM_NAMES, type StemSet } from '@prismaxim/shared';
 import { MixerEngine } from '@/lib/mixer/engine';
 import { downloadBlob, encodeMp3, encodeWav, renderMix } from '@/lib/mixer/export';
 import { saveBrowserProject } from '@/lib/library';

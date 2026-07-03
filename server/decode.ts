@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import ffmpegStatic from 'ffmpeg-static';
-import { MODEL_CHANNELS, MODEL_SAMPLE_RATE } from '@ytx/shared';
+import { MODEL_CHANNELS, MODEL_SAMPLE_RATE } from '@prismaxim/shared';
 import { TMP_DIR } from './config';
 
 // In a packaged Electron app the binary is unpacked from the asar; ffmpeg-static

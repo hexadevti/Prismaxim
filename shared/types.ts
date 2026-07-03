@@ -3,7 +3,8 @@
 import type { StemName } from './stems';
 
 export type ExtractionEngine = 'browser' | 'backend';
-export type SeparationEngine = 'browser' | 'backend';
+/** Stem separation always runs on the native backend (the browser engine was removed — too slow). */
+export type SeparationEngine = 'backend';
 
 export type InputSource =
   | { kind: 'youtube'; url: string; extraction: ExtractionEngine }
@@ -84,6 +85,8 @@ export interface SourceMeta extends VideoStats {
   mimeType: string;
   bytes: number;
   hasThumb?: boolean;
+  /** How long the YouTube extraction (capture) took, in ms. */
+  captureMs?: number;
 }
 
 /** Summary of a saved editable arrangement (clip layout + referenced audio). */
@@ -105,4 +108,6 @@ export interface ProjectMeta {
   lengthSamples: number;
   stems: StemName[];
   engine: string;
+  /** How long the stem separation took, in ms. */
+  separationMs?: number;
 }

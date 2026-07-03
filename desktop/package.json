@@ -2,11 +2,12 @@
   "name": "desktop",
   "version": "0.1.1",
   "private": true,
-  "description": "YTextractor desktop app (Electron) — bundles the UI + backend into one Windows app.",
+  "description": "Prismaxim desktop app (Electron) — bundles the UI + backend into one Windows app.",
   "main": "main.mjs",
   "scripts": {
     "build:web": "cross-env BUILD_TARGET=desktop npm --prefix ../web run build",
     "build:backend": "node build-backend.mjs",
+    "build:icon": "node build-icon.mjs",
     "build": "npm run build:web && npm run build:backend",
     "dev": "npm run build && electron main.mjs",
     "dist": "npm run build && electron-builder --win"
@@ -23,17 +24,19 @@
     "cross-env": "^7.0.3",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
-    "esbuild": "^0.24.0"
+    "esbuild": "^0.24.0",
+    "sharp": "^0.34.5"
   },
   "build": {
-    "appId": "com.ytextractor.desktop",
-    "productName": "YTextractor",
+    "appId": "com.prismaxim.desktop",
+    "productName": "Prismaxim",
     "directories": {
       "output": "release"
     },
     "files": [
       "main.mjs",
-      "dist/**"
+      "dist/**",
+      "build/icon.png"
     ],
     "extraResources": [
       {
@@ -46,6 +49,7 @@
       "**/node_modules/ffmpeg-static/**"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis"
       ]

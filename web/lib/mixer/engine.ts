@@ -8,7 +8,7 @@
  * offset; resuming recreates them at that offset.
  */
 
-import type { StemName, StemSet } from '@ytx/shared';
+import type { StemName, StemSet } from '@prismaxim/shared';
 
 export interface TrackState {
   name: StemName;

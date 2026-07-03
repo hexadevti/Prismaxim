@@ -21,10 +21,10 @@
       "@/*": [
         "./*"
       ],
-      "@ytx/shared": [
+      "@prismaxim/shared": [
         "../shared/index.ts"
       ],
-      "@ytx/shared/*": [
+      "@prismaxim/shared/*": [
         "../shared/*"
       ]
     },

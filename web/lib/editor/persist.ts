@@ -4,7 +4,7 @@
  * and referenced by id from each clip, so splits/copies don't duplicate audio.
  */
 
-import type { ArrangementSummary, ProgressUpdate, StemName } from '@ytx/shared';
+import type { ArrangementSummary, ProgressUpdate, StemName } from '@prismaxim/shared';
 import { decodeToModelAudio } from '../audio';
 import { encodeWav } from '../mixer/export';
 import { makeAudioBuffer, uid, type EditorProject, type MidiNote } from './model';

@@ -11,7 +11,7 @@ import {
   type SourceMeta,
   type StemName,
   type StemSet,
-} from '@ytx/shared';
+} from '@prismaxim/shared';
 import { decodeToModelAudio, stemSetFromChannels } from './audio';
 import { encodeWav } from './mixer/export';
 

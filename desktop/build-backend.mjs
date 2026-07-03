@@ -1,4 +1,4 @@
-// Bundle the Fastify backend (TypeScript, + the @ytx/shared TS package) into a
+// Bundle the Fastify backend (TypeScript, + the @prismaxim/shared TS package) into a
 // single ESM file the Electron main process imports. Native / hard-to-bundle
 // packages stay external and are shipped as real node_modules (see asarUnpack
 // + dependencies in package.json).
@@ -15,7 +15,7 @@ await build({
   format: 'esm',
   target: 'node20',
   outfile: join(here, 'dist', 'backend.mjs'),
-  // Keep the native + heavyweight deps external; @ytx/shared is bundled inline.
+  // Keep the native + heavyweight deps external; @prismaxim/shared is bundled inline.
   external: [
     'onnxruntime-node',
     'ffmpeg-static',

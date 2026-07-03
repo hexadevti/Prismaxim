@@ -291,8 +291,18 @@ a,
 .app-main {
   flex: 1;
   min-width: 0;
-  padding: 24px 24px 60px;
-  overflow-y: auto; /* scrolls only when its content genuinely overflows */
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px 24px;
+  overflow: hidden; /* the editor fills this and scrolls its lanes internally */
+}
+
+/* The editor fills the main area; only its lane list scrolls (below). */
+.panel.editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ---------- popup modals ---------- */
@@ -1159,6 +1169,10 @@ select:hover {
 
 .editor-timeline {
   position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   overflow: hidden;
@@ -1185,6 +1199,9 @@ select:hover {
 
 .lanes {
   position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .lane-row {

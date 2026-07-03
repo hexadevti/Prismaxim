@@ -20,7 +20,7 @@ const desktop = process.env.BUILD_TARGET === 'desktop';
 
 const nextConfig: NextConfig = {
   // Transpile the shared TS workspace package (published as raw source).
-  transpilePackages: ['@ytx/shared'],
+  transpilePackages: ['@prismaxim/shared'],
   ...(desktop ? { output: 'export' as const, images: { unoptimized: true } } : {}),
   async headers() {
     return [

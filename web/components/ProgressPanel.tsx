@@ -1,6 +1,6 @@
 'use client';
 
-import type { ProgressUpdate } from '@ytx/shared';
+import type { ProgressUpdate } from '@prismaxim/shared';
 
 const PHASE_LABELS: Record<string, string> = {
   extracting: 'Fetching audio',

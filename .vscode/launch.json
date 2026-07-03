@@ -43,11 +43,18 @@
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Prismaxim: Desktop (Electron)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/desktop"
     }
   ],
   "compounds": [
     {
-      "name": "App (attach backend + run web)",
+      "name": "Prismaxim: App (backend + web)",
       "configurations": ["Attach to Backend", "Web (Next.js dev)"],
       "stopAll": true
     }

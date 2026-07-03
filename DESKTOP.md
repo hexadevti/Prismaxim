@@ -1,4 +1,4 @@
-# YTextractor desktop app (Windows)
+# Prismaxim desktop app (Windows)
 
 A single Electron app that bundles the whole thing — the UI **and** the Fastify
 backend — into one installable Windows program. Because it runs on your own
@@ -13,7 +13,7 @@ machine, **yt-dlp uses your home (residential) IP, so YouTube import just works*
   app is one local server on `127.0.0.1:8787`.
 - Electron (`desktop/main.mjs`) starts that backend in-process and opens a window pointed at it.
 - Per-user data (library, saved projects, the ~258 MB separation model, the yt-dlp binary) lives
-  under the app's `userData` folder (`%APPDATA%/YTextractor/data`), so it survives updates.
+  under the app's `userData` folder (`%APPDATA%/Prismaxim/data`), so it survives updates.
 
 The `desktop/` project is **standalone** (its own `node_modules`) so it doesn't disturb the web /
 Docker workspaces.
@@ -42,7 +42,7 @@ npm run dist
 ```
 
 electron-builder produces an **NSIS installer** in `desktop/release/` (e.g.
-`YTextractor Setup <version>.exe`). Native modules (`onnxruntime-node`, `ffmpeg-static`) are
+`Prismaxim Setup <version>.exe`). Native modules (`onnxruntime-node`, `ffmpeg-static`) are
 unpacked from the asar automatically; `web/out` is shipped as an app resource.
 
 > Build the Windows installer **on Windows** (or a Windows CI runner). The native `onnxruntime-node`

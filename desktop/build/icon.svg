@@ -1,0 +1,59 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c2231"/>
+      <stop offset="1" stop-color="#0a0d13"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.4" cy="0.42" r="0.72">
+      <stop offset="0" stop-color="#5b6cff" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#5b6cff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="glassL" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#41507a"/>
+      <stop offset="1" stop-color="#232d48"/>
+    </linearGradient>
+    <linearGradient id="glassR" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#232c46"/>
+      <stop offset="1" stop-color="#141b2c"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+
+    <!-- reusable light: incoming beam + refracted spectrum fan (origin at the prism's right face) -->
+    <g id="beam">
+      <path d="M40 250 L182 283" stroke="#f2f6ff" stroke-width="15" stroke-linecap="round"/>
+    </g>
+    <g id="fan">
+      <polygon points="249,300 441,215 451,242" fill="#ffcf5c"/>
+      <polygon points="249,300 451,242 457,271" fill="#5fdd9b"/>
+      <polygon points="249,300 457,271 459,300" fill="#34d0ee"/>
+      <polygon points="249,300 459,300 457,329" fill="#4a9fff"/>
+      <polygon points="249,300 457,329 451,358" fill="#7b7cff"/>
+      <polygon points="249,300 451,358 441,385" fill="#c08cff"/>
+    </g>
+  </defs>
+
+  <!-- dark rounded tile -->
+  <rect x="16" y="16" width="480" height="480" rx="114" fill="url(#tile)"/>
+  <rect x="16" y="16" width="480" height="480" rx="114" fill="url(#halo)"/>
+  <rect x="17.5" y="17.5" width="477" height="477" rx="112.5" fill="none"
+        stroke="#ffffff" stroke-opacity="0.08" stroke-width="3"/>
+
+  <!-- diffuse light glow behind -->
+  <g filter="url(#glow)" opacity="0.5">
+    <use href="#beam"/>
+    <use href="#fan"/>
+  </g>
+
+  <!-- prism: two faces for depth -->
+  <polygon points="206,150 146,360 206,360" fill="url(#glassL)"/>
+  <polygon points="206,150 206,360 266,360" fill="url(#glassR)"/>
+  <polygon points="206,150 146,360 266,360" fill="none"
+           stroke="#b9c2e8" stroke-opacity="0.5" stroke-width="3" stroke-linejoin="round"/>
+  <line x1="206" y1="150" x2="146" y2="360" stroke="#eef2ff" stroke-opacity="0.55" stroke-width="2.5"/>
+
+  <!-- crisp light on top -->
+  <use href="#beam"/>
+  <use href="#fan"/>
+</svg>

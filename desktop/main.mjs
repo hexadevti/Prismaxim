@@ -1,4 +1,4 @@
-// YTextractor desktop (Electron). Runs the bundled Fastify backend in a separate
+// Prismaxim desktop (Electron). Runs the bundled Fastify backend in a separate
 // utility process — so heavy work (YouTube import, native stem separation) never
 // blocks the window's UI thread — and opens a window pointed at it. Running
 // locally means yt-dlp uses the user's own (residential) IP, so YouTube import
@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const PORT = Number(process.env.YTX_PORT ?? 8787);
+const PORT = Number(process.env.PRISMAXIM_PORT ?? 8787);
 const BASE = `http://127.0.0.1:${PORT}`;
 
 // Per-user storage: library, model cache, scratch, and the yt-dlp binary.
@@ -43,9 +43,17 @@ function startBackend() {
       settled = true;
       fn(arg);
     };
-    backend.on('exit', (code) => done(reject, new Error(`backend exited (${code})`)));
+    // Primary signal: the backend posts { type: 'ready' } once it's actually
+    // listening (see server/index.ts). Reliable even on a slow cold start.
+    backend.on('message', (msg) => {
+      if (msg && msg.type === 'ready') done(resolve);
+    });
+    // If it dies before becoming ready, fail fast.
+    backend.on('exit', (code) => done(reject, new Error(`backend exited (code ${code})`)));
+    // Fallback: poll /health (covers a dropped message). Generous window (~60s)
+    // so a slow first launch right after a build isn't mistaken for a failure.
     (async () => {
-      for (let i = 0; i < 150; i++) {
+      for (let i = 0; i < 300 && !settled; i++) {
         try {
           const r = await fetch(`${BASE}/health`);
           if (r.ok) return done(resolve);
@@ -54,7 +62,7 @@ function startBackend() {
         }
         await new Promise((res) => setTimeout(res, 200));
       }
-      done(reject, new Error('backend failed to start'));
+      done(reject, new Error('backend did not become ready within 60s'));
     })();
   });
 }
@@ -65,6 +73,7 @@ function createWindow() {
     height: 900,
     backgroundColor: '#0b0e14',
     autoHideMenuBar: true,
+    icon: join(here, 'build', 'icon.png'),
     webPreferences: { contextIsolation: true },
   });
   void win.loadURL(BASE);
@@ -93,7 +102,16 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  await startBackend();
+  try {
+    await startBackend();
+  } catch (err) {
+    dialog.showErrorBox(
+      'Prismaxim',
+      `O serviço interno não pôde iniciar.\n\n${err?.message ?? err}\n\nA aplicação será encerrada.`,
+    );
+    app.quit();
+    return;
+  }
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
