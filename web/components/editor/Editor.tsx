@@ -17,9 +17,12 @@ import {
   Save,
   Scissors,
   SkipBack,
+  SkipForward,
   Split,
   Square,
   Trash2,
+  TrendingDown,
+  TrendingUp,
   X,
 } from 'lucide-react';
 import {
@@ -34,13 +37,14 @@ import {
   type EditorTrack,
   type Selection,
 } from '@/lib/editor/model';
-import { saveArrangement } from '@/lib/editor/persist';
+import { store } from '@/lib/store';
 import {
   copyRange,
   cutRange,
   deleteSelection,
   moveClip,
   paste,
+  setClipFade,
   splitAt,
   trimClipEdge,
   type Clipboard,
@@ -67,10 +71,23 @@ import Toolbar from './Toolbar';
 import RecordBar from './RecordBar';
 import ChordStrip from './ChordStrip';
 import Ruler from './Ruler';
-import TimelineTrack, { LANE_HEIGHT, SIDEBAR_WIDTH } from './TimelineTrack';
+import TimelineTrack, {
+  FADE_BAND_PX,
+  FADE_GRAB_PX,
+  LANE_HEIGHT,
+  SIDEBAR_WIDTH,
+} from './TimelineTrack';
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const EDGE_PX = 6;
+
+/** Force a window-wide cursor for the active clip drag (or clear it when null). */
+function setDragCursor(mode: DragState['mode'] | null) {
+  const cls = document.body.classList;
+  cls.remove('drag-move', 'drag-trim');
+  if (mode === 'move') cls.add('drag-move');
+  else if (mode && mode !== 'range') cls.add('drag-trim'); // trim + fade drag horizontally
+}
 
 function fmtTime(s: number): string {
   if (!isFinite(s)) s = 0;
@@ -90,18 +107,26 @@ type DragState =
       base: EditorProject;
       startClientX: number;
       origStart: number;
+    }
+  | {
+      mode: 'fade-in' | 'fade-out';
+      clipId: string;
+      base: EditorProject;
+      startClientX: number;
+      origFade: number;
     };
+
+/** Default fade length (seconds) applied when inserting a fade from the menu. */
+const DEFAULT_FADE_SEC = 1;
 
 export default function Editor({
   initialProject,
   title,
-  backendUrl,
   onSaved,
   onDirtyChange,
 }: {
   initialProject: EditorProject;
   title: string;
-  backendUrl?: string;
   onSaved?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
@@ -121,6 +146,7 @@ export default function Editor({
   const [hasClipboard, setHasClipboard] = useState(false);
   const [exporting, setExporting] = useState<null | 'wav' | 'mp3'>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [exportScope, setExportScope] = useState<'mix' | 'track'>('mix');
   const [exportParams, setExportParams] = useState({
     format: 'wav' as 'wav' | 'mp3',
     bitrate: 192,
@@ -391,11 +417,46 @@ export default function Editor({
   const playheadSec = () => engineRef.current?.currentTime() ?? 0;
 
   const doSplit = useCallback(() => {
-    const t = playheadSec();
-    const ids = selectionRef.current.trackIds.length
-      ? selectionRef.current.trackIds
+    const sel = selectionRef.current;
+    const ids = sel.trackIds.length
+      ? sel.trackIds
       : projectRef.current.tracks.map((tr) => tr.id);
-    commit(splitAt(projectRef.current, t, ids));
+    if (sel.endSec - sel.startSec > 1e-6) {
+      // A region is selected: carve it out into its own new clip by splitting at
+      // both edges, then select the carved clips so the new block is ready to use.
+      const next = splitAt(splitAt(projectRef.current, sel.startSec, ids), sel.endSec, ids);
+      commit(next);
+      const carved: string[] = [];
+      for (const track of next.tracks) {
+        if (!ids.includes(track.id)) continue;
+        for (const c of track.clips) {
+          if (c.startSec >= sel.startSec - 1e-6 && clipEnd(c) <= sel.endSec + 1e-6) {
+            carved.push(c.id);
+          }
+        }
+      }
+      setSelection({ startSec: 0, endSec: 0, trackIds: ids, clipIds: carved });
+    } else {
+      // No region: split every clip crossing the playhead.
+      commit(splitAt(projectRef.current, playheadSec(), ids));
+    }
+  }, [commit]);
+
+  // Insert (or reset to default) a fade-in/out on the selected clips; the fade
+  // line is then draggable on the timeline to fine-tune its length.
+  const insertFade = useCallback(
+    (edge: 'in' | 'out') => {
+      const ids = selectionRef.current.clipIds;
+      if (!ids.length) return;
+      commit(setClipFade(projectRef.current, ids, edge, DEFAULT_FADE_SEC));
+    },
+    [commit],
+  );
+
+  const clearFades = useCallback(() => {
+    const ids = selectionRef.current.clipIds;
+    if (!ids.length) return;
+    commit(setClipFade(setClipFade(projectRef.current, ids, 'in', 0), ids, 'out', 0));
   }, [commit]);
 
   const doCopy = useCallback(() => {
@@ -459,10 +520,9 @@ export default function Editor({
   }, [viewportWidth]);
 
   const saveProject = async () => {
-    if (!backendUrl) return;
     setSaveState('saving');
     try {
-      await saveArrangement(backendUrl, projectRef.current, title);
+      await store.saveArrangement(projectRef.current, title);
       setSaveState('saved');
       setDirty(false);
       onSaved?.();
@@ -624,9 +684,43 @@ export default function Editor({
     return { hit: top?.clip ?? null, edge: top?.edge ?? null, all };
   };
 
+  // A fade handle (the dot at a fade's end) under the pointer, if any. Only the
+  // top band responds so it doesn't fight edge-trimming lower in the clip.
+  const fadeHandleAt = (
+    trackId: string,
+    localX: number,
+    localY: number,
+  ): { clip: Clip; edge: 'in' | 'out' } | null => {
+    if (localY > FADE_BAND_PX) return null;
+    const track = projectRef.current.tracks.find((t) => t.id === trackId);
+    if (!track) return null;
+    const secToX = (s: number) => (s - scrollRef.current) * pxRef.current;
+    for (let i = track.clips.length - 1; i >= 0; i--) {
+      const c = track.clips[i]!;
+      const x0 = secToX(c.startSec);
+      const x1 = secToX(clipEnd(c));
+      if (localX < x0 || localX > x1) continue;
+      const fi = c.fadeInSec ?? 0;
+      const fo = c.fadeOutSec ?? 0;
+      if (fi > 0 && Math.abs(localX - secToX(c.startSec + fi)) <= FADE_GRAB_PX) {
+        return { clip: c, edge: 'in' };
+      }
+      if (fo > 0 && Math.abs(localX - secToX(clipEnd(c) - fo)) <= FADE_GRAB_PX) {
+        return { clip: c, edge: 'out' };
+      }
+      break; // only the topmost clip at this x can own a handle
+    }
+    return null;
+  };
+
   // LMB = select region (click a clip to select it; repeated clicks cycle through
   // overlapping clips) / trim clip edge. MMB (middle) = move clip. RMB = context menu.
-  const onLanePointerDown = (e: React.PointerEvent, trackId: string, localX: number) => {
+  const onLanePointerDown = (
+    e: React.PointerEvent,
+    trackId: string,
+    localX: number,
+    localY: number,
+  ) => {
     if (e.button === 2) return;
     setMenu(null);
     setSelectedTrackId(null);
@@ -634,8 +728,20 @@ export default function Editor({
     if (!track) return;
     const sec = Math.max(0, scrollRef.current + localX / pxRef.current);
     const { hit, edge, all } = hitClipAt(trackId, localX);
+    const fade = e.button === 0 ? fadeHandleAt(trackId, localX, localY) : null;
 
-    if (e.button === 1) {
+    if (e.button === 0 && fade) {
+      // Drag a fade handle to adjust its length (checked before trim so the
+      // handle wins in the top corner where they overlap).
+      setSelection({ startSec: 0, endSec: 0, trackIds: [trackId], clipIds: [fade.clip.id] });
+      dragRef.current = {
+        mode: fade.edge === 'in' ? 'fade-in' : 'fade-out',
+        clipId: fade.clip.id,
+        base: projectRef.current,
+        startClientX: e.clientX,
+        origFade: (fade.edge === 'in' ? fade.clip.fadeInSec : fade.clip.fadeOutSec) ?? 0,
+      };
+    } else if (e.button === 1) {
       // move: prefer the already-selected overlapping clip, else the topmost
       const selId = selectionRef.current.clipIds[0];
       const chosen = all.find((a) => a.clip.id === selId)?.clip ?? hit;
@@ -674,6 +780,9 @@ export default function Editor({
       return;
     }
 
+    // Lock the cursor for the whole window during move/trim drags.
+    setDragCursor(dragRef.current?.mode ?? null);
+
     const onMove = (ev: PointerEvent) => {
       const d = dragRef.current;
       if (!d) return;
@@ -697,6 +806,19 @@ export default function Editor({
         projectRef.current = next;
         setProject(next);
         engineRef.current?.setProject(next);
+      } else if (d.mode === 'fade-in' || d.mode === 'fade-out') {
+        // fade-in grows dragging right; fade-out grows dragging left
+        const dxSec = (ev.clientX - d.startClientX) / pxRef.current;
+        const delta = d.mode === 'fade-in' ? dxSec : -dxSec;
+        const next = setClipFade(
+          d.base,
+          [d.clipId],
+          d.mode === 'fade-in' ? 'in' : 'out',
+          d.origFade + delta,
+        );
+        projectRef.current = next;
+        setProject(next);
+        engineRef.current?.setProject(next);
       } else {
         const dxSec = (ev.clientX - d.startClientX) / pxRef.current;
         const next = trimClipEdge(d.base, d.clipId, d.mode === 'trim-start' ? 'start' : 'end', dxSec);
@@ -708,6 +830,7 @@ export default function Editor({
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      setDragCursor(null);
       const d = dragRef.current;
       dragRef.current = null;
       if (!d) return;
@@ -717,7 +840,9 @@ export default function Editor({
         if (s.endSec - s.startSec < 2 / pxRef.current && d.hitClipId) {
           setSelection({ startSec: 0, endSec: 0, trackIds: [trackId], clipIds: [d.hitClipId] });
         }
-      } else {
+      } else if (projectRef.current !== d.base) {
+        // Only record history if the drag actually changed something (a mere
+        // click on an edge/handle leaves projectRef untouched).
         history.push(d.base);
         forceHistory((n) => n + 1);
         setDirty(true);
@@ -1141,13 +1266,26 @@ export default function Editor({
     setCleanTrack(null);
   };
 
-  const doExport = async (kind: 'wav' | 'mp3', bitrate = 192) => {
+  // Render either the selected track (scope='track', when it has audio clips) or
+  // the full mix, then encode + download. Falls back to the mix when the chosen
+  // track has no audio (e.g. a MIDI-only track, which exports via "Export MIDI").
+  const doExport = async (kind: 'wav' | 'mp3', bitrate = 192, scope: 'mix' | 'track' = 'mix') => {
     setExportOpen(false);
     setExporting(kind);
     try {
-      const buffer = await renderProject(projectRef.current);
+      const trackId = selectedTrackRef.current;
+      const chosen =
+        scope === 'track' && trackId
+          ? projectRef.current.tracks.find((t) => t.id === trackId)
+          : undefined;
+      const audioTrack = chosen && chosen.clips.length > 0 ? chosen : undefined;
+      const buffer = audioTrack
+        ? await renderTrack(projectRef.current, audioTrack.id)
+        : await renderProject(projectRef.current);
+      if (!buffer) return;
       const blob = kind === 'wav' ? encodeWav(buffer) : encodeMp3(buffer, bitrate);
-      downloadBlob(blob, `${safeName(title)}_edit.${kind}`);
+      const part = audioTrack ? safeName(audioTrack.name) : 'mix';
+      downloadBlob(blob, `${safeName(title)}_${part}.${kind}`);
     } finally {
       setExporting(null);
     }
@@ -1156,6 +1294,11 @@ export default function Editor({
   const hasSelection =
     (selection.endSec - selection.startSec > 1e-6 && selection.trackIds.length > 0) ||
     selection.clipIds.length > 0;
+  // A track is selected AND holds audio clips → the Export dialog offers a
+  // track-vs-mix choice (MIDI-only tracks are excluded; they export as MIDI).
+  const selectedTrack =
+    (selectedTrackId && project.tracks.find((t) => t.id === selectedTrackId)) || null;
+  const canExportTrack = !!selectedTrack && selectedTrack.clips.length > 0;
   const duration = totalDuration(project);
   const viewportSec = viewportWidth / pxPerSec || 0;
   const maxScroll = Math.max(0, duration - viewportSec * 0.5);
@@ -1182,6 +1325,14 @@ export default function Editor({
             title={recording ? 'Stop recording' : 'Record (into armed track or a new take)'}
           >
             {recording ? <Square size={13} fill="currentColor" /> : <Circle size={13} fill="currentColor" />}
+          </button>
+          <button
+            className="btn secondary tp-btn"
+            onClick={() => seekTo(duration)}
+            disabled={!engine || duration <= 0}
+            title="To end"
+          >
+            <SkipForward size={16} />
           </button>
           <span className="time">
             {fmtTime(engineRef.current?.currentTime() ?? 0)} / {fmtTime(duration)}
@@ -1244,35 +1395,36 @@ export default function Editor({
           <button
             className="btn"
             disabled={exporting !== null}
-            onClick={() => setExportOpen(true)}
-            title="Export the mix as an audio file"
+            onClick={() => {
+              setExportScope(canExportTrack ? 'track' : 'mix');
+              setExportOpen(true);
+            }}
+            title="Export the selected track or the full mix as an audio file"
           >
             {exporting ? 'Exporting…' : <><Download size={15} /> Export</>}
           </button>
-          {backendUrl && (
-            <button
-              className="btn secondary"
-              onClick={saveProject}
-              disabled={saveState === 'saving'}
-              title="Save the editable project to the library"
-            >
-              {saveState === 'saving' ? (
-                'Saving…'
-              ) : saveState === 'saved' ? (
-                <>
-                  <Check size={14} /> Saved
-                </>
-              ) : saveState === 'error' ? (
-                <>
-                  <AlertTriangle size={14} /> Retry save
-                </>
-              ) : (
-                <>
-                  <Save size={15} /> Save
-                </>
-              )}
-            </button>
-          )}
+          <button
+            className="btn secondary"
+            onClick={saveProject}
+            disabled={saveState === 'saving'}
+            title="Save the editable project to the library"
+          >
+            {saveState === 'saving' ? (
+              'Saving…'
+            ) : saveState === 'saved' ? (
+              <>
+                <Check size={14} /> Saved
+              </>
+            ) : saveState === 'error' ? (
+              <>
+                <AlertTriangle size={14} /> Retry save
+              </>
+            ) : (
+              <>
+                <Save size={15} /> Save
+              </>
+            )}
+          </button>
         </div>
       </div>
 
@@ -1594,13 +1746,34 @@ export default function Editor({
         <div className="modal-backdrop">
           <div className="modal" style={{ maxWidth: 400 }} onPointerDown={(e) => e.stopPropagation()}>
             <div className="modal-head">
-              <span>Export mix</span>
+              <span>Export {exportScope === 'track' && canExportTrack ? 'track' : 'mix'}</span>
               <button className="modal-close" onClick={() => setExportOpen(false)}>
                 <X size={16} />
               </button>
             </div>
             <div className="modal-body">
               <div className="panel">
+                {canExportTrack && (
+                  <div className="field">
+                    <label>What to export</label>
+                    <div className="seg">
+                      <button
+                        className={exportScope === 'track' ? 'active' : ''}
+                        onClick={() => setExportScope('track')}
+                        title={`Export only the “${selectedTrack!.name}” track`}
+                      >
+                        Track: {selectedTrack!.name}
+                      </button>
+                      <button
+                        className={exportScope === 'mix' ? 'active' : ''}
+                        onClick={() => setExportScope('mix')}
+                        title="Export the full mix of all tracks"
+                      >
+                        Full mix
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="field">
                   <label>Format</label>
                   <div className="seg">
@@ -1638,7 +1811,7 @@ export default function Editor({
                   <button
                     className="btn"
                     disabled={exporting !== null}
-                    onClick={() => doExport(exportParams.format, exportParams.bitrate)}
+                    onClick={() => doExport(exportParams.format, exportParams.bitrate, exportScope)}
                   >
                     {exporting ? 'Exporting…' : <><Download size={15} /> Export</>}
                   </button>
@@ -1673,8 +1846,36 @@ export default function Editor({
               <ClipboardPaste size={14} /> Paste
             </button>
             <button onClick={() => { doSplit(); setMenu(null); }}>
-              <Split size={14} /> Split at playhead
+              <Split size={14} />{' '}
+              {selection.endSec - selection.startSec > 1e-6
+                ? 'Split selection to new clip'
+                : 'Split at playhead'}
             </button>
+            {selection.clipIds.length > 0 && (
+              <>
+                <div className="ctx-sep" />
+                <button onClick={() => { insertFade('in'); setMenu(null); }}>
+                  <TrendingUp size={14} /> Fade in
+                </button>
+                <button onClick={() => { insertFade('out'); setMenu(null); }}>
+                  <TrendingDown size={14} /> Fade out
+                </button>
+                {(() => {
+                  const hasFade = project.tracks.some((t) =>
+                    t.clips.some(
+                      (c) =>
+                        selection.clipIds.includes(c.id) &&
+                        ((c.fadeInSec ?? 0) > 0 || (c.fadeOutSec ?? 0) > 0),
+                    ),
+                  );
+                  return hasFade ? (
+                    <button onClick={() => { clearFades(); setMenu(null); }}>
+                      <X size={14} /> Remove fades
+                    </button>
+                  ) : null;
+                })()}
+              </>
+            )}
             <div className="ctx-sep" />
             <button onClick={() => { doDelete(); setMenu(null); }} disabled={!hasSelection}>
               <Trash2 size={14} /> Delete selection

@@ -57,7 +57,11 @@ export default function Toolbar(p: ToolbarProps) {
         <button className="btn secondary" onClick={p.onPaste} disabled={!p.canPaste} title="Paste (Ctrl+V)">
           <ClipboardPaste size={14} /> Paste
         </button>
-        <button className="btn secondary" onClick={p.onSplit} title="Split at playhead (S)">
+        <button
+          className="btn secondary"
+          onClick={p.onSplit}
+          title="Split: carve the selected region into a new clip, or split at the playhead (S)"
+        >
           <Split size={14} /> Split
         </button>
         <button className="btn secondary" onClick={p.onDelete} disabled={!p.hasSelection} title="Delete (Del)">

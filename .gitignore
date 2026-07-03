@@ -9,7 +9,12 @@ shared/dist/
 server/dist/
 desktop/dist/
 desktop/release/
+cloud/dist/
 **/*.tsbuildinfo
+
+# local env (may hold tokens)
+.env*.local
+**/.env*.local
 
 # runtime data
 server/tmp/

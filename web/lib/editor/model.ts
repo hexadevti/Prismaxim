@@ -19,6 +19,10 @@ export interface Clip {
   offsetSec: number;
   /** playable length, seconds */
   durationSec: number;
+  /** fade-in ramp length from the clip start, seconds (absent/0 = none) */
+  fadeInSec?: number;
+  /** fade-out ramp length to the clip end, seconds (absent/0 = none) */
+  fadeOutSec?: number;
 }
 
 /** A transcribed MIDI note (attached to a track). */

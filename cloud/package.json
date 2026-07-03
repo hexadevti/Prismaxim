@@ -1,0 +1,24 @@
+{
+  "name": "cloud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Stateless GPU stem-separation service (Modal / RunPod) for Prismaxim.",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "node build.mjs",
+    "start": "node dist/cloud.mjs"
+  },
+  "dependencies": {
+    "@prismaxim/shared": "file:../shared",
+    "fastify": "^5.2.0",
+    "ffmpeg-static": "^5.2.0",
+    "onnxruntime-node": "^1.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.24.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

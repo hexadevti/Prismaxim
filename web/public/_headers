@@ -1,0 +1,8 @@
+# Cross-origin isolation for the 100% web build (Netlify / Cloudflare Pages read
+# this file). Required so onnxruntime-web can use SharedArrayBuffer (WASM threads)
+# and the AudioWorklet recorder works. `credentialless` keeps the page isolated
+# while still allowing smplr's cross-origin instrument samples (Chrome/Edge).
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  Cross-Origin-Resource-Policy: cross-origin

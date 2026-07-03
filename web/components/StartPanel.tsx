@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { ExtractionEngine, JobConfig } from '@prismaxim/shared';
+import type { ExtractionEngine, JobConfig, SeparationEngine } from '@prismaxim/shared';
 import { checkBackend } from '@/lib/engines/client';
+import { IS_DESKTOP } from '@/lib/env';
+import { cloudConfigured } from '@/lib/cloudConfig';
 import { addToHistory, getHistory, removeFromHistory, type HistoryEntry } from '@/lib/history';
 
 type InputKind = 'youtube' | 'file';
@@ -38,21 +40,35 @@ function Segmented<T extends string>({
 }
 
 export default function StartPanel({ onStart, backendUrl }: StartPanelProps) {
-  const [inputKind, setInputKind] = useState<InputKind>('youtube');
+  const [inputKind, setInputKind] = useState<InputKind>(IS_DESKTOP ? 'youtube' : 'file');
   const [url, setUrl] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [extraction, setExtraction] = useState<ExtractionEngine>('backend');
   const [backendUp, setBackendUp] = useState<boolean | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  // Web build: report the browser separation engine so the user knows what to expect.
+  const [hasWebGPU, setHasWebGPU] = useState<boolean | null>(null);
+  // Optional cloud "fast mode": shown only when a cloud endpoint is configured.
+  const [hasCloud, setHasCloud] = useState(false);
+  const [useCloud, setUseCloud] = useState(false);
 
   // Load link history on mount (client-only).
   useEffect(() => {
     setHistory(getHistory());
   }, []);
 
-  // Separation always runs on the backend, so the backend is always required.
-  const needsBackend = true;
+  useEffect(() => {
+    if (!IS_DESKTOP) setHasWebGPU(typeof navigator !== 'undefined' && !!navigator.gpu);
+    setHasCloud(cloudConfigured());
+  }, []);
+
+  // Cloud separation currently applies to uploaded files.
+  const cloudApplies = hasCloud && inputKind === 'file';
+  const cloudActive = cloudApplies && useCloud;
+
+  // Only the desktop build talks to a backend (YouTube import + native separation).
+  const needsBackend = IS_DESKTOP;
 
   useEffect(() => {
     let cancelled = false;
@@ -70,17 +86,18 @@ export default function StartPanel({ onStart, backendUrl }: StartPanelProps) {
   }, [needsBackend, backendUrl]);
 
   const canStart =
-    (inputKind === 'file' && !!file) ||
-    (inputKind === 'youtube' && url.trim().length > 0);
+    (inputKind === 'file' && !!file) || (inputKind === 'youtube' && url.trim().length > 0);
 
   function start() {
     if (inputKind === 'youtube') setHistory(addToHistory(url.trim()));
+    const localEngine: SeparationEngine = IS_DESKTOP ? 'backend' : 'browser';
+    const separation: SeparationEngine = cloudActive ? 'cloud' : localEngine;
     const config: JobConfig = {
       input:
         inputKind === 'file'
           ? { kind: 'file', fileName: file!.name }
           : { kind: 'youtube', url: url.trim(), extraction },
-      separation: 'backend',
+      separation,
       backendBaseUrl: backendUrl.replace(/\/$/, ''),
     };
     onStart(config, inputKind === 'file' ? file : null);
@@ -89,16 +106,20 @@ export default function StartPanel({ onStart, backendUrl }: StartPanelProps) {
   return (
     <div className="panel">
       <h2>1 · Choose your source</h2>
-      <div className="field">
-        <Segmented
-          value={inputKind}
-          onChange={setInputKind}
-          options={[
-            { value: 'youtube', label: 'YouTube link' },
-            { value: 'file', label: 'Upload file' },
-          ]}
-        />
-      </div>
+
+      {/* Input kind: web build is upload-only (YouTube import is desktop-only). */}
+      {IS_DESKTOP && (
+        <div className="field">
+          <Segmented
+            value={inputKind}
+            onChange={setInputKind}
+            options={[
+              { value: 'youtube', label: 'YouTube link' },
+              { value: 'file', label: 'Upload file' },
+            ]}
+          />
+        </div>
+      )}
 
       {inputKind === 'youtube' ? (
         <>
@@ -193,13 +214,47 @@ export default function StartPanel({ onStart, backendUrl }: StartPanelProps) {
         </div>
       )}
 
-      {needsBackend && (
-        <p className={backendUp === false ? 'err' : 'hint'} style={{ marginTop: 16, marginBottom: 12 }}>
+      {/* Opt-in cloud "fast mode" (only when an endpoint is configured). */}
+      {cloudApplies && (
+        <div className="field">
+          <label>Separation</label>
+          <Segmented
+            value={useCloud ? 'cloud' : 'local'}
+            onChange={(v) => setUseCloud(v === 'cloud')}
+            options={[
+              { value: 'local', label: IS_DESKTOP ? 'Local (native)' : 'Local (WASM)' },
+              { value: 'cloud', label: 'Cloud (fast)' },
+            ]}
+          />
+        </div>
+      )}
+
+      {/* Cloud fast-mode, backend status (desktop), or WebGPU capability (web). */}
+      {cloudActive ? (
+        <p className="hint" style={{ marginTop: 16, marginBottom: 12 }}>
+          ⚡ Cloud (fast) — separation runs on your GPU endpoint.
+        </p>
+      ) : needsBackend ? (
+        <p
+          className={backendUp === false ? 'err' : 'hint'}
+          style={{ marginTop: 16, marginBottom: 12 }}
+        >
           {backendUp === null
             ? 'Checking service…'
             : backendUp
               ? '✓ Separation service ready'
               : '✗ Separation service not reachable — check the URL in Options.'}
+        </p>
+      ) : (
+        <p
+          className={hasWebGPU === false ? 'warn' : 'hint'}
+          style={{ marginTop: 16, marginBottom: 12 }}
+        >
+          {hasWebGPU === null
+            ? 'Separation runs in your browser.'
+            : hasWebGPU
+              ? '✓ WebGPU ready — fast in-browser separation (Chrome/Edge).'
+              : '⚠ WebGPU unavailable — separation falls back to WASM (much slower). Use Chrome/Edge.'}
         </p>
       )}
 

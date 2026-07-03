@@ -1,5 +1,6 @@
 {
   "name": "desktop",
+  "productName": "Prismaxim",
   "version": "0.2.0",
   "private": true,
   "description": "Prismaxim desktop app (Electron) — bundles the UI + backend into one Windows app.",
@@ -29,7 +30,6 @@
   },
   "build": {
     "appId": "com.prismaxim.desktop",
-    "productName": "Prismaxim",
     "directories": {
       "output": "release"
     },

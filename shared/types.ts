@@ -3,8 +3,11 @@
 import type { StemName } from './stems';
 
 export type ExtractionEngine = 'browser' | 'backend';
-/** Stem separation always runs on the native backend (the browser engine was removed — too slow). */
-export type SeparationEngine = 'backend';
+/**
+ * Where stem separation runs: in the browser (onnxruntime-web, WebGPU/WASM), on
+ * the native desktop backend, or on the optional GPU cloud service (see /cloud).
+ */
+export type SeparationEngine = 'browser' | 'backend' | 'cloud';
 
 export type InputSource =
   | { kind: 'youtube'; url: string; extraction: ExtractionEngine }

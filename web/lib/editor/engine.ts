@@ -29,6 +29,8 @@ export class EditorEngine {
   readonly monitorGain: GainNode;
   private trackNodes = new Map<string, TrackNode>();
   private activeSources: AudioScheduledSourceNode[] = [];
+  /** per-clip fade envelope nodes for the current playback (torn down on stop). */
+  private clipGains: GainNode[] = [];
   private project: EditorProject;
   private bank: SamplerBank;
   /** called when a sampled instrument finishes loading (to refresh the UI). */
@@ -292,6 +294,8 @@ export class EditorEngine {
       src.disconnect();
     }
     this.activeSources = [];
+    for (const cg of this.clipGains) cg.disconnect();
+    this.clipGains = [];
     this.bank.stopAll();
   }
 
@@ -338,7 +342,41 @@ export class EditorEngine {
         const src = this.ctx.createBufferSource();
         src.buffer = buffer;
         src.playbackRate.value = pbRate; // rate 1 when pitch-preserved
-        src.connect(node.gain);
+
+        // Per-clip fade envelope: insert a gain node and schedule linear ramps
+        // when the clip has a fade-in/out (handles starting mid-fade too).
+        const fadeIn = clip.fadeInSec ?? 0;
+        const fadeOut = clip.fadeOutSec ?? 0;
+        if (fadeIn > 1e-4 || fadeOut > 1e-4) {
+          const cg = this.ctx.createGain();
+          src.connect(cg);
+          cg.connect(node.gain);
+          const g = cg.gain;
+          const tlStart = clip.startSec;
+          const tlEnd = end;
+          const playStart = Math.max(start, tlStart);
+          // timeline position → context time for this source
+          const toCtx = (p: number) => when + Math.max(0, p - playStart) / this.rate;
+          const fadeInEnd = tlStart + fadeIn;
+          const fadeOutStart = tlEnd - fadeOut;
+          const inActive = fadeIn > 1e-4 && playStart < fadeInEnd;
+          // starting gain (accounts for beginning partway through a fade)
+          let g0 = 1;
+          if (inActive) g0 = Math.max(0, (playStart - tlStart) / fadeIn);
+          if (fadeOut > 1e-4 && playStart > fadeOutStart) {
+            g0 = Math.min(g0, Math.max(0, (tlEnd - playStart) / fadeOut));
+          }
+          g.setValueAtTime(g0, when);
+          if (inActive) g.linearRampToValueAtTime(1, toCtx(fadeInEnd));
+          if (fadeOut > 1e-4) {
+            const outStart = Math.max(playStart, fadeOutStart, inActive ? fadeInEnd : playStart);
+            if (toCtx(outStart) > when) g.setValueAtTime(1, toCtx(outStart));
+            g.linearRampToValueAtTime(0, toCtx(tlEnd));
+          }
+          this.clipGains.push(cg);
+        } else {
+          src.connect(node.gain);
+        }
         try {
           src.start(when, offSec, durSec);
         } catch {

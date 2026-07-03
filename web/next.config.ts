@@ -15,13 +15,19 @@ const crossOriginIsolationHeaders = [
 ];
 
 // For the desktop (Electron) build we export a static bundle that the packaged
-// Fastify server serves locally; the web deploy keeps the normal Next server.
+// Fastify server serves locally. The web deploy can also be exported as a fully
+// static, serverless bundle (STATIC_EXPORT=1) — hosted anywhere that can send
+// the COOP/COEP isolation headers (Vercel/Netlify/Cloudflare Pages). `next dev`
+// keeps the normal server so the headers() below apply during development.
 const desktop = process.env.BUILD_TARGET === 'desktop';
+const staticExport = desktop || process.env.STATIC_EXPORT === '1';
 
 const nextConfig: NextConfig = {
   // Transpile the shared TS workspace package (published as raw source).
   transpilePackages: ['@prismaxim/shared'],
-  ...(desktop ? { output: 'export' as const, images: { unoptimized: true } } : {}),
+  // Expose the build target to the client bundle (see lib/env.ts).
+  env: { NEXT_PUBLIC_BUILD_TARGET: desktop ? 'desktop' : 'web' },
+  ...(staticExport ? { output: 'export' as const, images: { unoptimized: true } } : {}),
   async headers() {
     return [
       {

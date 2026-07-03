@@ -10,22 +10,29 @@ waveform + live spectrum, cut / move / trim / **record** on a timeline, **audio 
 sampled General-MIDI instrument bank, tempo / chord / key detection, a **pitch-preserving speed
 control** for practice, and export to WAV / MP3.
 
-Runs as a **web app** (for development) or a **bundled Windows desktop app** (see
-[DESKTOP.md](DESKTOP.md)). The desktop app runs everything locally, so **YouTube import uses your own
-residential IP** and just works.
+Ships two ways:
 
-Both heavy operations are **selectable per job**:
+- **Web app (100% in-browser, serverless)** — separation runs in the browser with
+  **onnxruntime-web + WebGPU** (WASM fallback) and the library is stored locally in
+  **IndexedDB + OPFS**. Input is **file upload only**. No backend, no install; Chrome/Edge.
+  See [web/DEPLOY.md](web/DEPLOY.md).
+- **Windows desktop app** (see [DESKTOP.md](DESKTOP.md)) — bundles a local Node backend for
+  **native separation** (onnxruntime-node) and **YouTube import** (yt-dlp, using your own
+  residential IP). The library lives on disk.
 
-| | Browser | Backend |
-|---|---|---|
-| **YouTube extraction** | youtubei.js + CORS proxy* | yt-dlp (auto-downloaded), youtubei.js fallback |
-| **Separation** | onnxruntime-web (WebGPU/WASM) | onnxruntime-node (native CPU, optional DirectML) |
+Both can **optionally** offload separation to a **GPU cloud service** ("Cloud (fast)" mode) — a
+stateless endpoint deployable to Modal/RunPod for ~US$0.005–0.01 per song. Opt-in; the local
+default (WASM / native) still works with no server. See [cloud/](cloud/README.md).
 
-Plus **file upload** as a third input that needs no extraction. The editor always runs in the
-browser (or the desktop app's window) and consumes the same stems regardless of where separation ran.
+| | Web build (browser) | Desktop build (backend) | Cloud (opt-in) |
+|---|---|---|---|
+| **Input** | file upload | file upload + YouTube | file upload |
+| **Separation** | onnxruntime-web (WebGPU/WASM) | onnxruntime-node (native CPU) | onnxruntime CUDA (GPU) |
+| **Library** | IndexedDB + OPFS | filesystem | *(uses the caller's library)* |
 
-\* Browser YouTube extraction still routes through the backend's `/proxy` (there is no truly
-serverless YouTube fetch). The **upload path always works** with no backend.
+The editor always runs in the browser (or the desktop app's window) and consumes the same stems
+regardless of where separation ran. YouTube import is **desktop-only** — there is no truly
+serverless YouTube fetch.
 
 ## Layout
 
@@ -51,10 +58,10 @@ npm install        # installs all workspaces
 ## Run
 
 ```bash
-# frontend (required)
+# web app — 100% in-browser (WebGPU separation, no backend needed)
 npm run dev:web    # http://localhost:3000
 
-# backend (only for backend extraction / backend separation / browser-extraction proxy)
+# backend — only for developing the desktop path (native separation + YouTube)
 npm run dev:server # http://localhost:8787
 ```
 
@@ -80,8 +87,9 @@ work (import, separation) never freezes the window.
 
 ### Quickest path (no backend)
 
-Choose **Upload file** + **Separation: Browser**, drop an MP3, and mix. First run downloads the
-model (cached afterward); separation takes a few minutes on CPU/WASM (faster on WebGPU).
+Just drop an MP3 and mix — separation runs in your browser automatically (WebGPU, WASM fallback).
+The first run downloads the ~258 MB model (cached afterward); separation is fast on WebGPU and slow
+on the WASM fallback.
 
 ## Configuration
 
@@ -102,9 +110,10 @@ model (cached afterward); separation takes a few minutes on CPU/WASM (faster on 
 - **Desktop app (recommended)** — `cd desktop && npm run dist` builds a Windows installer that
   bundles everything (UI + backend + native separation) into one program. Runs locally, so YouTube
   import works from your own IP. See [DESKTOP.md](DESKTOP.md).
-- **Web + backend** — `web/` is a normal Next.js app and `server/` a small Node service; both can be
-  hosted. Note that YouTube extraction from **datacenter IPs is usually blocked** — the file-upload
-  path always works, and browser separation + upload need no backend at all.
+- **Web app (serverless)** — `web/` deploys as a 100% static, backend-free site: WebGPU separation +
+  IndexedDB/OPFS library + file upload. `npm run build:static -w web` → `web/out`, hosted on any
+  static host that can send the COOP/COEP headers (Vercel/Netlify/Cloudflare Pages). See
+  [web/DEPLOY.md](web/DEPLOY.md). YouTube import is **desktop-only**.
 
 ## Editor & recording
 

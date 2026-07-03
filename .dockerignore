@@ -1,0 +1,10 @@
+# Build-context excludes for the cloud/ image (built from the repo root).
+# Keep node_modules OUT so npm install runs fresh in the image and dependency
+# postinstalls (e.g. onnxruntime-node's CUDA EP download) actually run.
+**/node_modules
+**/dist
+**/.next
+web/out
+desktop/release
+.git
+**/*.log

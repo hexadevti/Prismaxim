@@ -1,18 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Play, RefreshCw, Trash2 } from 'lucide-react';
-import type { ArrangementSummary, ProjectMeta, SourceMeta } from '@prismaxim/shared';
-import {
-  deleteArrangement as apiDeleteArrangement,
-  deleteProject as apiDeleteProject,
-  deleteSource as apiDeleteSource,
-  listArrangements,
-  listProjects,
-  listSources,
-  sourceAudioUrl,
-  sourceThumbUrl,
-} from '@/lib/library';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Download, Play, RefreshCw, Trash2 } from 'lucide-react';
+import { STEM_META } from '@prismaxim/shared';
+import type { ArrangementSummary, ProjectMeta, SourceMeta, StemName, StemSet } from '@prismaxim/shared';
+import { store } from '@/lib/store';
+import { cloudConfigured } from '@/lib/cloudConfig';
+import { downloadBlob, encodeWav, renderProject } from '@/lib/editor/export';
+import { fromStemSet, makeAudioBuffer } from '@/lib/editor/model';
 
 function fmtDate(iso: string): string {
   try {
@@ -51,24 +46,163 @@ function sourceStats(s: SourceMeta): string | null {
   return parts.length ? parts.join(' · ') : null;
 }
 
-/** Thumbnail image that removes itself if the file 404s (older sources / uploads). */
-function Thumb({ src, alt }: { src: string; alt: string }) {
-  const [ok, setOk] = useState(true);
-  if (!ok) return null;
+/**
+ * Thumbnail resolved asynchronously via the store (an object URL in the web
+ * build, a backend URL on desktop). Renders nothing when the source has none;
+ * revokes object URLs on unmount.
+ */
+function AsyncThumb({ sourceId, alt }: { sourceId: string; alt: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let url: string | null = null;
+    let alive = true;
+    store
+      .getSourceThumbUrl(sourceId)
+      .then((u) => {
+        if (!alive) return;
+        url = u;
+        setSrc(u);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+      if (url && url.startsWith('blob:')) URL.revokeObjectURL(url);
+    };
+  }, [sourceId]);
+  if (!src) return null;
   // eslint-disable-next-line @next/next/no-img-element
-  return <img className="lib-thumb" src={src} alt={alt} loading="lazy" onError={() => setOk(false)} />;
+  return <img className="lib-thumb" src={src} alt={alt} loading="lazy" onError={() => setSrc(null)} />;
+}
+
+async function openSourceAudio(id: string) {
+  try {
+    const url = await store.getSourceAudioUrl(id);
+    window.open(url, '_blank', 'noopener');
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Filesystem-safe base filename for a download. */
+function safeName(t: string): string {
+  return t.replace(/[^\w.-]+/g, '_').slice(0, 60) || 'audio';
+}
+
+/** Download an imported song in its original format. */
+async function downloadSource(s: SourceMeta): Promise<void> {
+  const bytes = await store.getSourceBytes(s.id);
+  const type = s.mimeType || 'application/octet-stream';
+  downloadBlob(new Blob([bytes], { type }), `${safeName(s.title)}.${s.ext}`);
+}
+
+/** Render an edited arrangement to a single mixed WAV and download it. */
+async function downloadArrangementMix(a: ArrangementSummary): Promise<void> {
+  const { project } = await store.loadArrangement(a.id);
+  downloadBlob(encodeWav(await renderProject(project)), `${safeName(a.title)}.wav`);
+}
+
+/** Ghost icon button that runs an async download, showing a busy/disabled state. */
+function DownloadButton({ title, run }: { title: string; run: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      className="btn ghost"
+      title={title}
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          await run();
+        } catch {
+          window.alert('Could not prepare the download.');
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <Download size={14} />
+    </button>
+  );
+}
+
+/**
+ * Download menu for a separated project: the full mix (all stems recombined) or
+ * any individual stem, each as a WAV. The stem set is loaded on first pick and
+ * cached while the menu stays open so downloading several stems decodes once.
+ */
+function ProjectDownloadMenu({ project }: { project: ProjectMeta }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<'mix' | StemName | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const setRef = useRef<StemSet | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('pointerdown', onDown);
+    return () => window.removeEventListener('pointerdown', onDown);
+  }, [open]);
+
+  const ensureSet = async (): Promise<StemSet> => {
+    if (!setRef.current) setRef.current = await store.loadProject(project);
+    return setRef.current;
+  };
+
+  const dl = async (key: 'mix' | StemName) => {
+    setBusy(key);
+    try {
+      const set = await ensureSet();
+      if (key === 'mix') {
+        downloadBlob(encodeWav(await renderProject(fromStemSet(set))), `${safeName(project.title)}.wav`);
+      } else {
+        const stem = set.stems.find((s) => s.name === key);
+        if (stem) {
+          const buf = makeAudioBuffer(stem.channels, set.sampleRate);
+          downloadBlob(encodeWav(buf), `${safeName(project.title)}_${key}.wav`);
+        }
+      }
+    } catch {
+      window.alert('Could not prepare the download.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="dl-wrap" ref={wrapRef}>
+      <button
+        className="btn ghost"
+        title="Download audio (mix or a single stem)"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <Download size={14} />
+      </button>
+      {open && (
+        <div className="ctx-menu dl-menu">
+          <button onClick={() => dl('mix')} disabled={busy !== null}>
+            {busy === 'mix' ? 'Preparing…' : 'Full song (mix)'}
+          </button>
+          {project.stems.map((name) => (
+            <button key={name} onClick={() => dl(name)} disabled={busy !== null}>
+              {busy === name ? 'Preparing…' : (STEM_META[name]?.label ?? name)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export interface LibraryPanelProps {
-  backendUrl: string;
   onOpenProject: (project: ProjectMeta) => void;
-  onSplitSource: (source: SourceMeta) => void;
+  onSplitSource: (source: SourceMeta, useCloud: boolean) => void;
   onOpenArrangement: (arr: ArrangementSummary) => void;
   reloadKey?: number;
 }
 
 export default function LibraryPanel({
-  backendUrl,
   onOpenProject,
   onSplitSource,
   onOpenArrangement,
@@ -78,25 +212,32 @@ export default function LibraryPanel({
   const [projects, setProjects] = useState<ProjectMeta[] | null>(null);
   const [arrangements, setArrangements] = useState<ArrangementSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Opt-in cloud "fast mode" for re-splitting a saved source.
+  const [hasCloud, setHasCloud] = useState(false);
+  const [useCloud, setUseCloud] = useState(false);
+
+  useEffect(() => {
+    setHasCloud(cloudConfigured());
+  }, []);
 
   const refresh = useCallback(async () => {
     setError(null);
     try {
       const [s, p, a] = await Promise.all([
-        listSources(backendUrl),
-        listProjects(backendUrl),
-        listArrangements(backendUrl),
+        store.listSources(),
+        store.listProjects(),
+        store.listArrangements(),
       ]);
       setSources(s);
       setProjects(p);
       setArrangements(a);
     } catch {
-      setError('Library needs the backend running.');
+      setError('Could not read the library.');
       setSources(null);
       setProjects(null);
       setArrangements(null);
     }
-  }, [backendUrl]);
+  }, []);
 
   useEffect(() => {
     void refresh();
@@ -109,9 +250,25 @@ export default function LibraryPanel({
     <div className="panel">
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0 }}>Library</h2>
-        <button className="btn ghost" onClick={() => void refresh()}>
-          <RefreshCw size={14} /> Refresh
-        </button>
+        <div className="row" style={{ gap: 12 }}>
+          {hasCloud && (
+            <label
+              className="hint"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+              title="Re-split using the cloud GPU endpoint"
+            >
+              <input
+                type="checkbox"
+                checked={useCloud}
+                onChange={(e) => setUseCloud(e.target.checked)}
+              />
+              ⚡ Cloud (fast)
+            </label>
+          )}
+          <button className="btn ghost" onClick={() => void refresh()}>
+            <RefreshCw size={14} /> Refresh
+          </button>
+        </div>
       </div>
 
       {error && <p className="hint">{error}</p>}
@@ -120,11 +277,11 @@ export default function LibraryPanel({
         <>
           <h3 style={{ marginTop: 16 }}>Imported songs</h3>
           {sources && sources.length === 0 && (
-            <p className="hint">No saved songs yet — import a YouTube link above.</p>
+            <p className="hint">No saved songs yet — split an uploaded file above.</p>
           )}
           {sources?.map((s) => (
             <div className="lib-item" key={s.id}>
-              {s.hasThumb && <Thumb src={sourceThumbUrl(backendUrl, s.id)} alt={s.title} />}
+              {s.hasThumb && <AsyncThumb sourceId={s.id} alt={s.title} />}
               <div className="lib-info">
                 <strong>{s.title}</strong>
                 {sourceStats(s) && <div className="hint">{sourceStats(s)}</div>}
@@ -134,18 +291,18 @@ export default function LibraryPanel({
                 </div>
               </div>
               <div className="lib-actions">
-                <a className="btn secondary" href={sourceAudioUrl(backendUrl, s.id)} target="_blank" rel="noreferrer">
+                <button className="btn secondary" onClick={() => void openSourceAudio(s.id)}>
                   <Play size={14} /> Open
-                </a>
-                <button className="btn" onClick={() => onSplitSource(s)}>
-                  Split
+                </button>
+                <DownloadButton title="Download the original audio" run={() => downloadSource(s)} />
+                <button className="btn" onClick={() => onSplitSource(s, useCloud)}>
+                  {useCloud ? 'Split ⚡' : 'Split'}
                 </button>
                 <button
                   className="btn ghost"
                   onClick={async () => {
-                    if (!window.confirm(`Delete "${s.title}"? This permanently removes it from disk.`))
-                      return;
-                    await apiDeleteSource(backendUrl, s.id);
+                    if (!window.confirm(`Delete "${s.title}"? This permanently removes it.`)) return;
+                    await store.deleteSource(s.id);
                     void refresh();
                   }}
                 >
@@ -162,31 +319,33 @@ export default function LibraryPanel({
           {projects?.map((p) => {
             const src = p.sourceId ? srcById.get(p.sourceId) : undefined;
             return (
-            <div className="lib-item" key={p.id}>
-              {src?.hasThumb && <Thumb src={sourceThumbUrl(backendUrl, src.id)} alt={p.title} />}
-              <div className="lib-info">
-                <strong>{p.title}</strong>
-                <div className="hint">
-                  {p.stems.length} stems · {p.engine} · {fmtDate(p.createdAt)}
-                  {fmtMs(p.separationMs) && ` · separated in ${fmtMs(p.separationMs)}`}
+              <div className="lib-item" key={p.id}>
+                {src?.hasThumb && <AsyncThumb sourceId={src.id} alt={p.title} />}
+                <div className="lib-info">
+                  <strong>{p.title}</strong>
+                  <div className="hint">
+                    {p.stems.length} stems · {p.engine} · {fmtDate(p.createdAt)}
+                    {fmtMs(p.separationMs) && ` · separated in ${fmtMs(p.separationMs)}`}
+                  </div>
+                </div>
+                <div className="lib-actions">
+                  <button className="btn" onClick={() => onOpenProject(p)}>
+                    Open project
+                  </button>
+                  <ProjectDownloadMenu project={p} />
+                  <button
+                    className="btn ghost"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete project "${p.title}"? This cannot be undone.`))
+                        return;
+                      await store.deleteProject(p.id);
+                      void refresh();
+                    }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               </div>
-              <div className="lib-actions">
-                <button className="btn" onClick={() => onOpenProject(p)}>
-                  Open project
-                </button>
-                <button
-                  className="btn ghost"
-                  onClick={async () => {
-                    if (!window.confirm(`Delete project "${p.title}"? This cannot be undone.`)) return;
-                    await apiDeleteProject(backendUrl, p.id);
-                    void refresh();
-                  }}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </div>
             );
           })}
 
@@ -206,12 +365,13 @@ export default function LibraryPanel({
                 <button className="btn" onClick={() => onOpenArrangement(a)}>
                   Open in editor
                 </button>
+                <DownloadButton title="Download the mixed audio (WAV)" run={() => downloadArrangementMix(a)} />
                 <button
                   className="btn ghost"
                   onClick={async () => {
                     if (!window.confirm(`Delete edited project "${a.title}"? This cannot be undone.`))
                       return;
-                    await apiDeleteArrangement(backendUrl, a.id);
+                    await store.deleteArrangement(a.id);
                     void refresh();
                   }}
                 >

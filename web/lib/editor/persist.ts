@@ -14,6 +14,8 @@ interface PersistClip {
   startSec: number;
   offsetSec: number;
   durationSec: number;
+  fadeInSec?: number;
+  fadeOutSec?: number;
 }
 interface PersistTrack {
   id: string;
@@ -27,7 +29,7 @@ interface PersistTrack {
   midi?: MidiNote[];
   instrument?: string;
 }
-interface ArrangementManifest {
+export interface ArrangementManifest {
   version: 1;
   title: string;
   sampleRate: number;
@@ -36,7 +38,7 @@ interface ArrangementManifest {
   tracks: PersistTrack[];
 }
 
-function serialize(
+export function serialize(
   project: EditorProject,
   title: string,
 ): { manifest: ArrangementManifest; buffers: { id: string; buffer: AudioBuffer }[] } {
@@ -64,6 +66,8 @@ function serialize(
         startSec: c.startSec,
         offsetSec: c.offsetSec,
         durationSec: c.durationSec,
+        fadeInSec: c.fadeInSec,
+        fadeOutSec: c.fadeOutSec,
       };
     }),
   }));
@@ -113,6 +117,40 @@ export async function saveArrangement(
   return { id, title, createdAt: new Date().toISOString(), trackCount: manifest.tracks.length };
 }
 
+/** Rebuild an editor project from a manifest + already-decoded audio buffers. */
+export function deserializeManifest(
+  manifest: ArrangementManifest,
+  bufMap: Map<string, AudioBuffer>,
+): EditorProject {
+  return {
+    sampleRate: manifest.sampleRate,
+    numChannels: manifest.numChannels,
+    tracks: manifest.tracks.map((t) => ({
+      id: t.id || uid(),
+      name: t.name,
+      color: t.color,
+      stem: t.stem,
+      muted: t.muted,
+      soloed: t.soloed,
+      volume: t.volume,
+      armed: false,
+      midi: t.midi,
+      instrument: t.instrument,
+      clips: t.clips
+        .filter((pc) => bufMap.has(pc.bufferId))
+        .map((pc) => ({
+          id: uid(),
+          buffer: bufMap.get(pc.bufferId)!,
+          startSec: pc.startSec,
+          offsetSec: pc.offsetSec,
+          durationSec: pc.durationSec,
+          fadeInSec: pc.fadeInSec,
+          fadeOutSec: pc.fadeOutSec,
+        })),
+    })),
+  };
+}
+
 export async function loadArrangement(
   baseUrl: string,
   id: string,
@@ -136,30 +174,5 @@ export async function loadArrangement(
     bufMap.set(bid, makeAudioBuffer(decoded.channels, decoded.sampleRate));
   }
 
-  const project: EditorProject = {
-    sampleRate: manifest.sampleRate,
-    numChannels: manifest.numChannels,
-    tracks: manifest.tracks.map((t) => ({
-      id: t.id || uid(),
-      name: t.name,
-      color: t.color,
-      stem: t.stem,
-      muted: t.muted,
-      soloed: t.soloed,
-      volume: t.volume,
-      armed: false,
-      midi: t.midi,
-      instrument: t.instrument,
-      clips: t.clips
-        .filter((pc) => bufMap.has(pc.bufferId))
-        .map((pc) => ({
-          id: uid(),
-          buffer: bufMap.get(pc.bufferId)!,
-          startSec: pc.startSec,
-          offsetSec: pc.offsetSec,
-          durationSec: pc.durationSec,
-        })),
-    })),
-  };
-  return { project, title: manifest.title };
+  return { project: deserializeManifest(manifest, bufMap), title: manifest.title };
 }

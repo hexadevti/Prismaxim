@@ -21,3 +21,11 @@ export const MODEL_CACHE = 'prismaxim-models-v1';
 /** Basic Pitch (audio→MIDI) TF.js model, self-hosted under public/ (same-origin). */
 export const BASIC_PITCH_MODEL_URL =
   process.env.NEXT_PUBLIC_BASIC_PITCH_MODEL_URL ?? '/models/basic-pitch/model.json';
+
+/**
+ * Optional cloud separation endpoint (see /cloud). When set, the app offers an
+ * opt-in "Cloud (fast)" separation mode. Both are also editable at runtime in
+ * Options. Empty string = no cloud option shown.
+ */
+export const DEFAULT_CLOUD_URL = process.env.NEXT_PUBLIC_CLOUD_SEPARATE_URL ?? '';
+export const DEFAULT_CLOUD_TOKEN = process.env.NEXT_PUBLIC_CLOUD_TOKEN ?? '';

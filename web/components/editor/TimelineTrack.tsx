@@ -12,6 +12,13 @@ export const SIDEBAR_WIDTH = 158;
 
 const BLACK_KEYS = new Set([1, 3, 6, 8, 10]);
 
+/** Width of the draggable trim handles at each clip edge (mirrors Editor's EDGE_PX). */
+const HANDLE_PX = 6;
+
+/** Top band (px) in which a fade handle can be grabbed, and its horizontal tolerance. */
+export const FADE_BAND_PX = 22;
+export const FADE_GRAB_PX = 7;
+
 /** Draw a time-aligned piano-roll (for MIDI tracks) into the lane canvas. */
 function drawPianoRoll(
   ctx: CanvasRenderingContext2D,
@@ -76,7 +83,7 @@ export interface TimelineTrackProps {
   selected: boolean;
   playing: boolean;
   analyser: AnalyserNode | null;
-  onPointerDown: (e: React.PointerEvent, trackId: string, localX: number) => void;
+  onPointerDown: (e: React.PointerEvent, trackId: string, localX: number, localY: number) => void;
   onContextMenu: (e: React.MouseEvent, trackId: string, localX: number) => void;
   onSelectTrack: (id: string) => void;
   onDeleteTrack: (id: string) => void;
@@ -137,6 +144,28 @@ export default function TimelineTrack({
   const [editing, setEditing] = useState(false);
   const [nameVal, setNameVal] = useState(track.name);
   const isMidi = !!track.midi && track.clips.length === 0;
+
+  // Cursor hint for a point on the lane: pointer over a fade handle, ew-resize
+  // over a clip edge (trim), default over a clip body, crosshair over empty lane.
+  const laneCursorAt = (localX: number, localY: number): string => {
+    if (isMidi) return 'crosshair';
+    const secToX = (sec: number) => (sec - scrollSec) * pxPerSec;
+    // Iterate topmost-first (last drawn wins), matching Editor's hit-testing.
+    for (let i = track.clips.length - 1; i >= 0; i--) {
+      const c = track.clips[i]!;
+      const x0 = secToX(c.startSec);
+      const x1 = secToX(clipEnd(c));
+      if (localX < x0 || localX > x1) continue;
+      if (localY <= FADE_BAND_PX) {
+        const fi = c.fadeInSec ?? 0;
+        const fo = c.fadeOutSec ?? 0;
+        if (fi > 0 && Math.abs(localX - secToX(c.startSec + fi)) <= FADE_GRAB_PX) return 'pointer';
+        if (fo > 0 && Math.abs(localX - secToX(clipEnd(c) - fo)) <= FADE_GRAB_PX) return 'pointer';
+      }
+      return localX - x0 <= HANDLE_PX || x1 - localX <= HANDLE_PX ? 'ew-resize' : 'default';
+    }
+    return 'crosshair';
+  };
 
   // Live spectrum overlay on the lane background (while playing).
   useEffect(() => {
@@ -279,6 +308,49 @@ export default function TimelineTrack({
         ctx.strokeStyle = selected ? '#22d3ee' : 'rgba(255,255,255,0.18)';
         ctx.lineWidth = selected ? 2 : 1;
         ctx.strokeRect(vx0 + 0.5, 4.5, vx1 - vx0 - 1, h - 9);
+
+        // selected clip: draw wider grab handles on each edge to signal that the
+        // sides can be dragged to trim (matches the ew-resize hover cursor).
+        if (selected) {
+          const drawHandle = (hx: number) => {
+            ctx.fillStyle = 'rgba(34,211,238,0.9)';
+            ctx.fillRect(hx, 4, HANDLE_PX, h - 8);
+            ctx.fillStyle = 'rgba(0,0,0,0.45)';
+            ctx.fillRect(hx + HANDLE_PX / 2 - 1.5, mid - 6, 1, 12);
+            ctx.fillRect(hx + HANDLE_PX / 2 + 0.5, mid - 6, 1, 12);
+          };
+          if (x0 >= 0 && x0 <= w) drawHandle(x0);
+          if (x1 >= 0 && x1 <= w) drawHandle(x1 - HANDLE_PX);
+        }
+
+        // fade envelopes: a line from the corner up to the fade end, the
+        // attenuated area shaded, and a draggable handle dot at the top.
+        const top = 5;
+        const bottom = h - 5;
+        const fadeIn = clip.fadeInSec ?? 0;
+        const fadeOut = clip.fadeOutSec ?? 0;
+        const drawFade = (cornerX: number, endX: number) => {
+          ctx.fillStyle = 'rgba(0,0,0,0.32)';
+          ctx.beginPath();
+          ctx.moveTo(cornerX, top);
+          ctx.lineTo(endX, top);
+          ctx.lineTo(cornerX, bottom);
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(250,204,21,0.95)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(cornerX, bottom);
+          ctx.lineTo(endX, top);
+          ctx.stroke();
+          // handle dot at the top (fade end)
+          ctx.fillStyle = 'rgba(250,204,21,1)';
+          ctx.beginPath();
+          ctx.arc(endX, top, 3.5, 0, Math.PI * 2);
+          ctx.fill();
+        };
+        if (fadeIn > 1e-6) drawFade(x0, secToX(clip.startSec + fadeIn));
+        if (fadeOut > 1e-6) drawFade(x1, secToX(clipEnd(clip) - fadeOut));
       }
     }
   }, [track, pxPerSec, scrollSec, viewportWidth, laneHeight, selection, isMidi]);
@@ -388,7 +460,11 @@ export default function TimelineTrack({
           style={{ width: viewportWidth, height: laneHeight }}
           onPointerDown={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
-            onPointerDown(e, track.id, e.clientX - rect.left);
+            onPointerDown(e, track.id, e.clientX - rect.left, e.clientY - rect.top);
+          }}
+          onPointerMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            e.currentTarget.style.cursor = laneCursorAt(e.clientX - rect.left, e.clientY - rect.top);
           }}
           onContextMenu={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();

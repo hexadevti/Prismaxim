@@ -43,13 +43,43 @@ function sliceClip(clip: Clip, fromSec: number, toSec: number): Clip | null {
   const s = Math.max(clip.startSec, fromSec);
   const e = Math.min(clipEnd(clip), toSec);
   if (e - s <= EPS) return null;
+  const dur = e - s;
+  // Carry a fade only onto the edge that the slice actually preserves, clamped
+  // to the new (possibly shorter) length.
+  const keepsStart = s <= clip.startSec + EPS;
+  const keepsEnd = e >= clipEnd(clip) - EPS;
+  const fadeInSec = keepsStart ? Math.min(clip.fadeInSec ?? 0, dur) : 0;
+  const fadeOutSec = keepsEnd ? Math.min(clip.fadeOutSec ?? 0, dur) : 0;
   return {
     id: uid(),
     buffer: clip.buffer,
     startSec: s,
     offsetSec: clip.offsetSec + (s - clip.startSec),
-    durationSec: e - s,
+    durationSec: dur,
+    ...(fadeInSec > EPS ? { fadeInSec } : {}),
+    ...(fadeOutSec > EPS ? { fadeOutSec } : {}),
   };
+}
+
+/** Set a clip's fade-in/out length (seconds), clamped so fades never overlap. */
+export function setClipFade(
+  project: EditorProject,
+  clipIds: string[],
+  edge: 'in' | 'out',
+  seconds: number,
+): EditorProject {
+  const next = cloneProject(project);
+  for (const track of next.tracks) {
+    for (const clip of track.clips) {
+      if (!clipIds.includes(clip.id)) continue;
+      const other = edge === 'in' ? clip.fadeOutSec ?? 0 : clip.fadeInSec ?? 0;
+      const max = Math.max(0, clip.durationSec - other);
+      const v = Math.max(0, Math.min(seconds, max));
+      if (edge === 'in') clip.fadeInSec = v > EPS ? v : undefined;
+      else clip.fadeOutSec = v > EPS ? v : undefined;
+    }
+  }
+  return next;
 }
 
 /** Split every clip crossing `timeSec` on the given tracks. */
@@ -227,6 +257,12 @@ export function trimClipEdge(
       let dur = clip.durationSec + deltaSec;
       dur = Math.max(0.02, Math.min(dur, bufDur - clip.offsetSec));
       clip.durationSec = dur;
+    }
+    // Keep fades within the (possibly shorter) clip and non-overlapping.
+    if (clip.fadeInSec) clip.fadeInSec = Math.min(clip.fadeInSec, clip.durationSec);
+    if (clip.fadeOutSec) clip.fadeOutSec = Math.min(clip.fadeOutSec, clip.durationSec);
+    if ((clip.fadeInSec ?? 0) + (clip.fadeOutSec ?? 0) > clip.durationSec) {
+      clip.fadeOutSec = Math.max(0, clip.durationSec - (clip.fadeInSec ?? 0)) || undefined;
     }
     sortClips(track);
     break;

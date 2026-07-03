@@ -14,11 +14,9 @@ import LibraryPanel from '@/components/LibraryPanel';
 import OptionsPanel from '@/components/OptionsPanel';
 import ProgressPanel from '@/components/ProgressPanel';
 import Editor from '@/components/editor/Editor';
-import { runJob } from '@/lib/pipeline';
-import { separateFromSource } from '@/lib/engines/client';
-import { loadProject } from '@/lib/library';
+import { runJob, splitSavedSource } from '@/lib/pipeline';
+import { store } from '@/lib/store';
 import { emptyProject, fromStemSet, type EditorProject } from '@/lib/editor/model';
-import { loadArrangement } from '@/lib/editor/persist';
 import { DEFAULT_BACKEND_URL } from '@/lib/config';
 
 type View = 'import' | 'library' | 'options';
@@ -111,9 +109,9 @@ export default function Home() {
   );
 
   const splitSource = useCallback(
-    (source: SourceMeta) =>
+    (source: SourceMeta, useCloud = false) =>
       runInModal(async () => {
-        const set = await separateFromSource(backendUrl, source.id, onProgress);
+        const set = await splitSavedSource(source, backendUrl, onProgress, useCloud);
         return { project: fromStemSet(set), title: source.title };
       }),
     [runInModal, backendUrl, onProgress],
@@ -122,15 +120,15 @@ export default function Home() {
   const openProject = useCallback(
     (p: ProjectMeta) =>
       runInModal(async () => {
-        const set = await loadProject(backendUrl, p, onProgress);
+        const set = await store.loadProject(p, onProgress);
         return { project: fromStemSet(set), title: p.title };
       }),
-    [runInModal, backendUrl, onProgress],
+    [runInModal, onProgress],
   );
 
   const openArrangement = useCallback(
-    (a: ArrangementSummary) => runInModal(() => loadArrangement(backendUrl, a.id, onProgress)),
-    [runInModal, backendUrl, onProgress],
+    (a: ArrangementSummary) => runInModal(() => store.loadArrangement(a.id, onProgress)),
+    [runInModal, onProgress],
   );
 
   const closeModal = useCallback(() => {
@@ -167,7 +165,6 @@ export default function Home() {
     if (view === 'library') {
       return (
         <LibraryPanel
-          backendUrl={backendUrl}
           onOpenProject={openProject}
           onSplitSource={splitSource}
           onOpenArrangement={openArrangement}
@@ -227,7 +224,6 @@ export default function Home() {
           key={sessionId}
           initialProject={project}
           title={title}
-          backendUrl={backendUrl}
           onSaved={() => {
             dirtyRef.current = false;
             setReloadKey((k) => k + 1);

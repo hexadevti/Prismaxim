@@ -1294,6 +1294,18 @@ select:hover {
   cursor: crosshair;
 }
 
+/* While a clip is being dragged, force a consistent cursor across the whole
+   window (the drag runs on window listeners, so the pointer roams off the lane). */
+body.drag-move,
+body.drag-move * {
+  cursor: move !important;
+}
+
+body.drag-trim,
+body.drag-trim * {
+  cursor: ew-resize !important;
+}
+
 .lane-visual {
   position: relative;
   flex-shrink: 0;
@@ -1503,4 +1515,18 @@ select:hover {
   height: 1px;
   background: var(--border);
   margin: 4px 2px;
+}
+
+/* Library download popover — a ctx-menu anchored under its Download button. */
+.dl-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.dl-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  min-width: 160px;
 }

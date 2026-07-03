@@ -3,7 +3,7 @@
  * WAV/MP3 encoders and download helper.
  */
 
-import { effectiveTrackGain, totalDuration, type EditorProject } from './model';
+import { clipEnd, effectiveTrackGain, totalDuration, type EditorProject } from './model';
 import { encodeMp3, encodeWav, downloadBlob } from '../mixer/export';
 
 export { encodeMp3, encodeWav, downloadBlob };
@@ -40,7 +40,24 @@ export async function renderProject(project: EditorProject): Promise<AudioBuffer
     for (const clip of track.clips) {
       const src = offline.createBufferSource();
       src.buffer = clip.buffer;
-      src.connect(trackGain);
+      const fadeIn = clip.fadeInSec ?? 0;
+      const fadeOut = clip.fadeOutSec ?? 0;
+      if (fadeIn > 1e-4 || fadeOut > 1e-4) {
+        const cg = offline.createGain();
+        src.connect(cg);
+        cg.connect(trackGain);
+        const g = cg.gain;
+        const s = clip.startSec;
+        const e = clipEnd(clip);
+        g.setValueAtTime(fadeIn > 1e-4 ? 0 : 1, s);
+        if (fadeIn > 1e-4) g.linearRampToValueAtTime(1, s + fadeIn);
+        if (fadeOut > 1e-4) {
+          g.setValueAtTime(1, Math.max(s + fadeIn, e - fadeOut));
+          g.linearRampToValueAtTime(0, e);
+        }
+      } else {
+        src.connect(trackGain);
+      }
       try {
         src.start(clip.startSec, clip.offsetSec, clip.durationSec);
       } catch {
