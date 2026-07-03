@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Prismaxim.png" alt="Prismaxim" width="300">
+</p>
+
 # 🎛 Prismaxim — Stem Splitter & Multitrack Editor
 
 Extract audio from a **YouTube link** or an **uploaded file**, split it into 6 stems with
