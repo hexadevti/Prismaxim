@@ -4,6 +4,10 @@
   "version": "0.2.1",
   "private": true,
   "description": "Prismaxim desktop app (Electron) — bundles the UI + backend into one Windows app.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hexadevti/Prismaxim.git"
+  },
   "main": "main.mjs",
   "scripts": {
     "build:web": "cross-env BUILD_TARGET=desktop npm --prefix ../web run build",
