@@ -42,7 +42,7 @@ workflows:
         XCODE_SCHEME: "App"
         # Numeric App Store Connect app id (from App Store Connect → App → General).
         APP_STORE_APPLE_ID: 0000000000
-      node: 20
+      node: 22
       xcode: latest
     scripts:
       - name: Install dependencies (root workspaces)
@@ -88,7 +88,7 @@ workflows:
         - prismaxim_build_env
       vars:
         PACKAGE_NAME: "com.prismaxim.app"
-      node: 20
+      node: 22
       java: 21
     scripts:
       - name: Install dependencies (root workspaces)
@@ -132,7 +132,7 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 45
     environment:
-      node: 20
+      node: 22
       java: 21
     scripts:
       - name: Install dependencies (root workspaces)
