@@ -8,6 +8,7 @@ import type {
   ProgressUpdate,
   ProjectMeta,
   SourceMeta,
+  StemName,
   StemSet,
 } from '@prismaxim/shared';
 import StartPanel from '@/components/StartPanel';
@@ -18,7 +19,8 @@ import Editor from '@/components/editor/Editor';
 import Mixer from '@/components/Mixer';
 import { runJob, splitSavedSource } from '@/lib/pipeline';
 import { store } from '@/lib/store';
-import { emptyProject, fromStemSet, type EditorProject } from '@/lib/editor/model';
+import { emptyProject, fromStemSet, type EditorProject, type EditorTrack } from '@/lib/editor/model';
+import type { ImportMode } from '@/components/StartPanel';
 import { keepScreenAwake } from '@/lib/platform/wakeLock';
 import { IS_MOBILE } from '@/lib/env';
 import { DEFAULT_BACKEND_URL } from '@/lib/config';
@@ -48,6 +50,12 @@ export default function Home() {
   const [stemSet, setStemSet] = useState<StemSet | null>(null);
   const [mobileEdit, setMobileEdit] = useState(false);
   const [sessionId, setSessionId] = useState(0);
+  // Tracks queued to append to the live editor project (an "Add to open project"
+  // import). Bumping `token` re-triggers the editor's append effect each time.
+  const [pendingImport, setPendingImport] = useState<{ tracks: EditorTrack[]; token: number } | null>(
+    null,
+  );
+  const importTokenRef = useRef(0);
   const [backendUrl, setBackendUrl] = useState(DEFAULT_BACKEND_URL);
   const [reloadKey, setReloadKey] = useState(0);
   const [job, setJob] = useState<{ running: boolean; progress?: ProgressUpdate; error?: string }>({
@@ -143,11 +151,30 @@ export default function Home() {
     setMobileEdit(entering);
   }, [mobileEdit, stemSet, project]);
 
-  // Run a project-loading task inside the active modal; on success it replaces
-  // the editor's project (confirming first if there are unsaved edits).
+  // Append a load result to the live editor project (an "Add to open project"
+  // import) instead of replacing it. The editor watches `pendingImport.token`.
+  const addToEditor = useCallback((loaded: Loaded) => {
+    const tracks = loaded.project
+      ? loaded.project.tracks
+      : loaded.set
+        ? fromStemSet(loaded.set).tracks
+        : [];
+    if (tracks.length) {
+      importTokenRef.current += 1;
+      setPendingImport({ tracks, token: importTokenRef.current });
+    }
+    setMobileEdit(true); // ensure the editor (not the mixer) is showing on mobile
+    setJob({ running: false });
+    setModal(null);
+  }, []);
+
+  // Run a project-loading task inside the active modal. mode 'new' replaces the
+  // editor project (confirming first if there are unsaved edits); mode 'add'
+  // appends the result to the current project.
   const runInModal = useCallback(
-    async (fn: () => Promise<Loaded>) => {
+    async (fn: () => Promise<Loaded>, mode: ImportMode = 'new') => {
       if (
+        mode === 'new' &&
         dirtyRef.current &&
         !window.confirm('Replace the current project? Unsaved changes will be lost.')
       ) {
@@ -161,7 +188,8 @@ export default function Home() {
       try {
         const loaded = await fn();
         if (cancelledRef.current) return;
-        loadIntoEditor(loaded);
+        if (mode === 'add') addToEditor(loaded);
+        else loadIntoEditor(loaded);
       } catch (err) {
         if (cancelledRef.current) return;
         setJob({ running: false, error: err instanceof Error ? err.message : String(err) });
@@ -169,23 +197,23 @@ export default function Home() {
         releaseWakeLock();
       }
     },
-    [loadIntoEditor],
+    [loadIntoEditor, addToEditor],
   );
 
   const start = useCallback(
-    (config: JobConfig, file: File | null) =>
+    (config: JobConfig, file: File | null, mode: ImportMode = 'new') =>
       runInModal(async () => {
-        const { set, title: t } = await runJob(config, file, onProgress);
-        return { title: t, set };
-      }),
+        const { set, project, title: t } = await runJob(config, file, onProgress);
+        return { title: t, set, project };
+      }, mode),
     [runInModal, onProgress],
   );
 
   const splitSource = useCallback(
-    (source: SourceMeta, useCloud = false) =>
+    (source: SourceMeta, useCloud = false, stems?: StemName[]) =>
       runInModal(async () => {
-        const set = await splitSavedSource(source, backendUrl, onProgress, useCloud);
-        return { title: source.title, set };
+        const { set, project } = await splitSavedSource(source, backendUrl, onProgress, useCloud, stems);
+        return { title: source.title, set, project };
       }),
     [runInModal, backendUrl, onProgress],
   );
@@ -234,7 +262,14 @@ export default function Home() {
         </div>
       );
     }
-    if (view === 'import') return <StartPanel onStart={start} backendUrl={backendUrl} />;
+    if (view === 'import')
+      return (
+        <StartPanel
+          onStart={start}
+          backendUrl={backendUrl}
+          canAddToProject={project.tracks.length > 0}
+        />
+      );
     if (view === 'library') {
       return (
         <LibraryPanel
@@ -320,6 +355,8 @@ export default function Home() {
             key={sessionId}
             initialProject={project}
             title={title}
+            onImport={() => selectView('import')}
+            pendingImport={pendingImport}
             onSaved={() => {
               dirtyRef.current = false;
               setReloadKey((k) => k + 1);

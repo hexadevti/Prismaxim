@@ -268,7 +268,7 @@ export const browserStore: LibraryStore = {
       const decoded = await decodeToModelAudio(bytes);
       perStemChannels.push(decoded.channels);
     }
-    return stemSetFromChannels(perStemChannels, project.sampleRate);
+    return stemSetFromChannels(perStemChannels, project.sampleRate, names);
   },
 
   async deleteProject(id) {

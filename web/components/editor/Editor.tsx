@@ -8,6 +8,7 @@ import {
   ClipboardPaste,
   Copy,
   Download,
+  FolderInput,
   Gauge,
   Hand,
   Magnet,
@@ -149,11 +150,17 @@ export default function Editor({
   title,
   onSaved,
   onDirtyChange,
+  onImport,
+  pendingImport,
 }: {
   initialProject: EditorProject;
   title: string;
   onSaved?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Open the import window (wired by the shell). Absent → no Import button. */
+  onImport?: () => void;
+  /** Tracks to append to the live project; `token` changes per import request. */
+  pendingImport?: { tracks: EditorTrack[]; token: number } | null;
 }) {
   const [engine, setEngine] = useState<EditorEngine | null>(null);
   const [project, setProject] = useState<EditorProject>(() => initialProject);
@@ -494,6 +501,20 @@ export default function Editor({
     },
     [history],
   );
+
+  // Append imported tracks to the live project when the shell requests it (an
+  // "Add to open project" import). The token guards against re-applying on a
+  // StrictMode double-invoke or a remount that still sees the last request.
+  const lastImportToken = useRef(pendingImport?.token ?? 0);
+  useEffect(() => {
+    const token = pendingImport?.token ?? 0;
+    if (!pendingImport || token === lastImportToken.current) return;
+    lastImportToken.current = token;
+    if (!pendingImport.tracks.length) return;
+    const next = cloneProject(projectRef.current);
+    next.tracks.push(...pendingImport.tracks);
+    commit(next);
+  }, [pendingImport, commit]);
 
   const effSelection = useCallback((): Selection => {
     const sel = selectionRef.current;
@@ -1700,6 +1721,15 @@ export default function Editor({
         </div>
 
         <div className="tp-group tp-right">
+          {onImport && (
+            <button
+              className="btn secondary"
+              onClick={onImport}
+              title="Import audio — as a new project or added to this one"
+            >
+              <FolderInput size={15} /> Import…
+            </button>
+          )}
           <button
             className="btn"
             disabled={exporting !== null}

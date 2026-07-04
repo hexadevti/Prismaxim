@@ -602,6 +602,82 @@ input[type='url']:focus {
   color: var(--danger);
 }
 
+/* stem picker (which of the 6 stems to separate) */
+.stem-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.stem-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    color 0.14s ease,
+    border-color 0.14s ease,
+    opacity 0.14s ease;
+}
+
+.stem-chip:hover:not(:disabled) {
+  background: var(--panel-3);
+  color: var(--text);
+}
+
+.stem-chip.active {
+  color: var(--text);
+  background: var(--panel-3);
+}
+
+.stem-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.stem-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.stem-picker-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.stem-all {
+  background: transparent;
+  border: none;
+  color: var(--accent-2);
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.stem-all:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+@media (max-width: 520px) {
+  .stem-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 .warn {
   color: #fbbf24;
   font-size: 12.5px;
