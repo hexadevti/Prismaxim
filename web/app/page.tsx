@@ -95,7 +95,16 @@ export default function Home() {
   }, []);
 
   const loadIntoEditor = useCallback((loaded: Loaded) => {
-    setProject(loaded.project);
+    let project = loaded.project;
+    if (IS_MOBILE) {
+      // Mobile has no MIDI features — drop any MIDI tracks so a loaded project
+      // never opens them (audio tracks only).
+      const audioOnly = project.tracks.filter((t) => !t.midi);
+      if (audioOnly.length !== project.tracks.length) {
+        project = { ...project, tracks: audioOnly };
+      }
+    }
+    setProject(project);
     setTitle(loaded.title);
     setStemSet(loaded.set ?? null);
     setMobileEdit(false); // default to the mixer view on mobile after a load

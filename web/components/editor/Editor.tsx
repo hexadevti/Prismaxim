@@ -904,33 +904,81 @@ export default function Editor({
         origStart: hit.startSec,
       };
     } else if (e.button === 0 && IS_MOBILE) {
-      // Mobile: one-finger drag pans the timeline (horizontal = time, vertical =
-      // the track list); a tap selects the clip under the finger. Two-finger
-      // pinch-zoom is handled separately and stands this down via pinchingRef.
+      // Mobile one-finger gestures on a lane:
+      //  - press-and-hold on a clip (~350 ms, held still) grabs it → the clip
+      //    follows the finger (horizontal = time, vertical = track) until release;
+      //  - dragging before the hold fires pans the timeline instead;
+      //  - a tap selects the clip under the finger.
+      // Two-finger pinch-zoom is handled separately and stands this down (pinchingRef).
       const anchorSec = sec;
       const startClientX = e.clientX;
       const startClientY = e.clientY;
       const startScrollTop = rowsRef.current?.scrollTop ?? 0;
       const tapId = hit?.id ?? null;
       let moved = false;
+      let mode: 'idle' | 'pan' | 'move' = 'idle';
+      let base = projectRef.current;
+      let groupIds: string[] = [];
+      let origTrackIdx = 0;
+
+      // Long-press → enter clip-move mode (unless the finger already moved/pinched).
+      const enterMove = () => {
+        if (mode !== 'idle' || moved || pinchingRef.current || !hit) return;
+        mode = 'move';
+        base = projectRef.current;
+        const selIds = selectionRef.current.clipIds;
+        const inMulti = selIds.length > 1 && selIds.includes(hit.id);
+        groupIds = inMulti ? selIds : [hit.id];
+        origTrackIdx = projectRef.current.tracks.findIndex((t) => t.id === trackId);
+        if (!inMulti) setSelection({ startSec: 0, endSec: 0, trackIds: [trackId], clipIds: [hit.id] });
+        setDragCursor('move');
+        navigator.vibrate?.(12); // haptic tick to signal "drag mode"
+      };
+      const holdTimer = hit ? window.setTimeout(enterMove, 350) : 0;
+
       const onMove = (ev: PointerEvent) => {
-        // A pinch anywhere during this touch counts as movement, so lifting off
-        // doesn't fire a spurious tap-select.
         if (pinchingRef.current) {
           moved = true;
+          window.clearTimeout(holdTimer);
           return;
         }
-        if (Math.abs(ev.clientX - startClientX) > 4 || Math.abs(ev.clientY - startClientY) > 4) {
-          moved = true;
+        const dx = ev.clientX - startClientX;
+        const dy = ev.clientY - startClientY;
+        if (mode === 'move') {
+          // Grabbed clip follows the finger.
+          const dxSec = dx / pxRef.current;
+          const deltaIdx = trackIdxFromY(ev.clientY) - origTrackIdx;
+          const next = moveClips(base, groupIds, dxSec, deltaIdx);
+          projectRef.current = next;
+          setProject(next);
+          engineRef.current?.setProject(next);
+          return;
         }
-        const rect = timelineRef.current!.getBoundingClientRect();
-        const lx = ev.clientX - rect.left - sidebarWidthRef.current;
-        setScrollSec(Math.max(0, anchorSec - lx / pxRef.current));
-        if (rowsRef.current) rowsRef.current.scrollTop = startScrollTop - (ev.clientY - startClientY);
+        if (!moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+          moved = true;
+          mode = 'pan'; // early movement = pan; cancel the pending hold
+          window.clearTimeout(holdTimer);
+        }
+        if (mode === 'pan') {
+          const rect = timelineRef.current!.getBoundingClientRect();
+          const lx = ev.clientX - rect.left - sidebarWidthRef.current;
+          setScrollSec(Math.max(0, anchorSec - lx / pxRef.current));
+          if (rowsRef.current) rowsRef.current.scrollTop = startScrollTop - dy;
+        }
       };
       const onUp = () => {
+        window.clearTimeout(holdTimer);
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
+        setDragCursor(null);
+        if (mode === 'move') {
+          if (projectRef.current !== base) {
+            history.push(base);
+            forceHistory((n) => n + 1);
+            setDirty(true);
+          }
+          return;
+        }
         if (!moved && !pinchingRef.current) {
           if (tapId) setSelection({ startSec: 0, endSec: 0, trackIds: [trackId], clipIds: [tapId] });
           else setSelection(EMPTY_SELECTION);
@@ -1185,11 +1233,13 @@ export default function Editor({
     }
   };
 
-  // Always show the Audio I/O controls: enable devices once the engine is ready
-  // (monitor stays off by default, so nothing is routed until you turn it on).
+  // Desktop: enable the Audio I/O devices once the engine is ready (monitor stays
+  // off by default, so nothing is routed until you turn it on). On mobile we skip
+  // this so the editor doesn't prompt for the mic on open — recording requests
+  // permission on demand (see toggleRecord), and the mic lives in Options.
   const autoEnabledRef = useRef(false);
   useEffect(() => {
-    if (!engine || autoEnabledRef.current) return;
+    if (IS_MOBILE || !engine || autoEnabledRef.current) return;
     autoEnabledRef.current = true;
     void enableDevices().catch(() => {
       autoEnabledRef.current = false; // allow a retry (e.g. after a denied prompt)
@@ -1711,20 +1761,24 @@ export default function Editor({
         onToggleTools={() => setToolsOpen((v) => !v)}
       />
 
-      <RecordBar
-        inputs={devices.inputs}
-        outputs={devices.outputs}
-        inputId={inputId}
-        outputId={outputId}
-        onInput={chooseInput}
-        onOutput={chooseOutput}
-        monitor={monitor}
-        onMonitor={setMonitorState}
-        onEnableDevices={enableDevices}
-        devicesReady={devicesReady}
-        outputSupported={supportsOutputSelection()}
-        getLevel={getInputLevel}
-      />
+      {/* Audio I/O bar is desktop-only; on mobile the mic lives in Options and
+          recording requests permission on demand. */}
+      {!IS_MOBILE && (
+        <RecordBar
+          inputs={devices.inputs}
+          outputs={devices.outputs}
+          inputId={inputId}
+          outputId={outputId}
+          onInput={chooseInput}
+          onOutput={chooseOutput}
+          monitor={monitor}
+          onMonitor={setMonitorState}
+          onEnableDevices={enableDevices}
+          devicesReady={devicesReady}
+          outputSupported={supportsOutputSelection()}
+          getLevel={getInputLevel}
+        />
+      )}
 
       <div className="editor-workspace">
       <div className="editor-timeline" ref={timelineRef}>
