@@ -7,6 +7,7 @@ import {
   ListPlus,
   Maximize2,
   Music2,
+  PanelRight,
   Redo2,
   Scissors,
   Split,
@@ -41,6 +42,9 @@ export interface ToolbarProps {
   onStats: () => void;
   analyzing: null | 'tempo' | 'chords' | 'midi' | 'stats';
   chordCount: number;
+  // tools sidebar
+  onToggleTools: () => void;
+  toolsOpen: boolean;
 }
 
 export default function Toolbar(p: ToolbarProps) {
@@ -103,6 +107,17 @@ export default function Toolbar(p: ToolbarProps) {
           {p.analyzing === 'stats' ? 'Analyzing…' : <><BarChart3 size={14} /> Stats</>}
         </button>
         {p.chordCount > 0 && <span className="hint">{p.chordCount} chords</span>}
+      </div>
+
+      {/* Tools (output-audio visualizers) */}
+      <div className="tool-group tool-group-end">
+        <button
+          className={`btn ghost${p.toolsOpen ? ' active' : ''}`}
+          onClick={p.onToggleTools}
+          title="Tools: output-audio visualizers (VU meter, spectrum)"
+        >
+          <PanelRight size={15} /> Tools
+        </button>
       </div>
     </div>
   );

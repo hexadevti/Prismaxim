@@ -10,6 +10,7 @@ import {
   Download,
   Gauge,
   Hand,
+  Magnet,
   Music,
   Music4,
   Play,
@@ -39,10 +40,11 @@ import {
 } from '@/lib/editor/model';
 import { store } from '@/lib/store';
 import {
+  copyClips,
   copyRange,
   cutRange,
   deleteSelection,
-  moveClip,
+  moveClips,
   paste,
   setClipFade,
   splitAt,
@@ -70,6 +72,7 @@ import StatsPanel from './StatsPanel';
 import Toolbar from './Toolbar';
 import RecordBar from './RecordBar';
 import ChordStrip from './ChordStrip';
+import BeatStrip from './BeatStrip';
 import Ruler from './Ruler';
 import TimelineTrack, {
   FADE_BAND_PX,
@@ -77,6 +80,16 @@ import TimelineTrack, {
   LANE_HEIGHT,
   SIDEBAR_WIDTH,
 } from './TimelineTrack';
+import Overview from './Overview';
+import ToolsPanel from './tools/ToolsPanel';
+import {
+  loadTools,
+  loadToolsOpen,
+  saveTools,
+  saveToolsOpen,
+  type ToolInstance,
+  type ToolKind,
+} from '@/lib/editor/tools';
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const EDGE_PX = 6;
@@ -102,7 +115,18 @@ function safeName(t: string): string {
 type DragState =
   | { mode: 'range'; anchorSec: number; anchorTrackIdx: number; hitClipId: string | null }
   | {
-      mode: 'move' | 'trim-start' | 'trim-end';
+      // Move one clip or a whole multi-selection together.
+      mode: 'move';
+      clipId: string;
+      base: EditorProject;
+      startClientX: number;
+      /** track index of the grabbed clip at drag start (for the track delta). */
+      origTrackIdx: number;
+      /** all clip ids to move together (the grabbed clip, or the selection). */
+      groupIds: string[];
+    }
+  | {
+      mode: 'trim-start' | 'trim-end';
       clipId: string;
       base: EditorProject;
       startClientX: number;
@@ -161,6 +185,8 @@ export default function Editor({
 
   const [metroOn, setMetroOn] = useState(false);
   const [bpm, setBpm] = useState(120);
+  const [bpmSnap, setBpmSnap] = useState(false);
+  const [bpmOffsetSec, setBpmOffsetSec] = useState(0);
   const [rate, setRate] = useState(1);
   const [keepPitch, setKeepPitch] = useState(false);
   const [pitchBusy, setPitchBusy] = useState(false);
@@ -188,6 +214,17 @@ export default function Editor({
   const [menu, setMenu] = useState<{ x: number; y: number; trackId: string } | null>(null);
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
 
+  // Output-audio visualizers in the right sidebar (view-only, persisted to localStorage).
+  const [toolsOpen, setToolsOpen] = useState(() => loadToolsOpen());
+  const [tools, setTools] = useState<ToolInstance[]>(() => loadTools());
+  useEffect(() => saveTools(tools), [tools]);
+  useEffect(() => saveToolsOpen(toolsOpen), [toolsOpen]);
+  const addTool = (kind: ToolKind) =>
+    setTools((ts) => [...ts, { id: uid(), kind, source: 'out' }]);
+  const removeTool = (id: string) => setTools((ts) => ts.filter((t) => t.id !== id));
+  const setToolSource = (id: string, source: string) =>
+    setTools((ts) => ts.map((t) => (t.id === id ? { ...t, source } : t)));
+
   const history = useRef(new History()).current;
   const [, forceHistory] = useState(0);
   const inputRef = useRef<InputController | null>(null);
@@ -201,6 +238,8 @@ export default function Editor({
   selectedTrackRef.current = selectedTrackId;
   const metroOnRef = useRef(metroOn);
   const bpmRef = useRef(bpm);
+  const bpmSnapRef = useRef(bpmSnap);
+  const bpmOffsetSecRef = useRef(bpmOffsetSec);
   const rateRef = useRef(rate);
   const keepPitchRef = useRef(keepPitch);
   const monitorRef = useRef(monitor);
@@ -227,6 +266,8 @@ export default function Editor({
   engineRef.current = engine;
   metroOnRef.current = metroOn;
   bpmRef.current = bpm;
+  bpmSnapRef.current = bpmSnap;
+  bpmOffsetSecRef.current = bpmOffsetSec;
   rateRef.current = rate;
   keepPitchRef.current = keepPitch;
   monitorRef.current = monitor;
@@ -304,6 +345,13 @@ export default function Editor({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // Opening/closing the tools sidebar resizes the timeline (a sibling flex item),
+  // but that doesn't reliably trigger its ResizeObserver — re-measure explicitly
+  // so the lanes reflow and nothing (e.g. the per-track toggles) gets clipped.
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (el) setContainerWidth(el.clientWidth);
+  }, [toolsOpen]);
   useEffect(() => {
     if (!fitRef.current && viewportWidth > 0) {
       const d = totalDuration(projectRef.current) || 1;
@@ -460,12 +508,26 @@ export default function Editor({
   }, [commit]);
 
   const doCopy = useCallback(() => {
-    const cb = copyRange(projectRef.current, effSelection());
+    const sel = selectionRef.current;
+    // Selected blocks copy exactly those clips; otherwise copy the time-range slab.
+    const cb =
+      sel.clipIds.length > 0
+        ? copyClips(projectRef.current, sel.clipIds)
+        : copyRange(projectRef.current, effSelection());
     clipboardRef.current = cb;
     setHasClipboard(!!cb);
   }, [effSelection]);
 
   const doCut = useCallback(() => {
+    const sel = selectionRef.current;
+    if (sel.clipIds.length > 0) {
+      const cb = copyClips(projectRef.current, sel.clipIds);
+      clipboardRef.current = cb;
+      setHasClipboard(!!cb);
+      commit(deleteSelection(projectRef.current, sel));
+      setSelection(EMPTY_SELECTION);
+      return;
+    }
     const { project: next, clipboard } = cutRange(projectRef.current, effSelection());
     clipboardRef.current = clipboard;
     setHasClipboard(!!clipboard);
@@ -562,6 +624,16 @@ export default function Editor({
       } else if (e.key.toLowerCase() === 's' && !mod) {
         e.preventDefault();
         doSplit();
+      } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && bpmSnapRef.current) {
+        // With snap on, step the cursor one beat left/right.
+        e.preventDefault();
+        const beat = 60 / bpmRef.current;
+        const off = bpmOffsetSecRef.current;
+        const cur = engineRef.current?.currentTime() ?? 0;
+        const idx = (cur - off) / beat;
+        const nextIdx =
+          e.key === 'ArrowRight' ? Math.floor(idx + 1e-6) + 1 : Math.ceil(idx - 1e-6) - 1;
+        seekTo(Math.max(0, off + nextIdx * beat));
       } else if (e.key === ' ') {
         e.preventDefault();
         togglePlay();
@@ -595,6 +667,13 @@ export default function Editor({
       startMetro(eng.currentTime());
       setPlaying(true);
     }
+  };
+
+  // Round a time to the nearest BPM beat, aligned to the snap offset.
+  const snapToBeat = (sec: number): number => {
+    const beat = 60 / bpmRef.current;
+    const off = bpmOffsetSecRef.current;
+    return Math.max(0, Math.round((sec - off) / beat) * beat + off);
   };
 
   const seekTo = (sec: number) => {
@@ -713,8 +792,10 @@ export default function Editor({
     return null;
   };
 
-  // LMB = select region (click a clip to select it; repeated clicks cycle through
-  // overlapping clips) / trim clip edge. MMB (middle) = move clip. RMB = context menu.
+  // LMB = select only: a simple click (no drag) selects the clip under the cursor
+  // (Shift/Ctrl-click toggles it in a multi-selection; repeated clicks cycle
+  // overlaps); a drag selects a time region. LMB on a clip edge = trim.
+  // MMB (middle) = move a clip / the whole selection. RMB = context menu.
   const onLanePointerDown = (
     e: React.PointerEvent,
     trackId: string,
@@ -742,18 +823,20 @@ export default function Editor({
         origFade: (fade.edge === 'in' ? fade.clip.fadeInSec : fade.clip.fadeOutSec) ?? 0,
       };
     } else if (e.button === 1) {
-      // move: prefer the already-selected overlapping clip, else the topmost
-      const selId = selectionRef.current.clipIds[0];
-      const chosen = all.find((a) => a.clip.id === selId)?.clip ?? hit;
+      // middle-drag = move; if the grabbed clip is in a multi-selection, move the group.
+      const selIds = selectionRef.current.clipIds;
+      const chosen = all.find((a) => selIds.includes(a.clip.id))?.clip ?? hit;
       if (!chosen) return;
       e.preventDefault();
-      setSelection({ startSec: 0, endSec: 0, trackIds: [trackId], clipIds: [chosen.id] });
+      const inMulti = selIds.length > 1 && selIds.includes(chosen.id);
+      if (!inMulti) setSelection({ startSec: 0, endSec: 0, trackIds: [trackId], clipIds: [chosen.id] });
       dragRef.current = {
         mode: 'move',
         clipId: chosen.id,
         base: projectRef.current,
         startClientX: e.clientX,
-        origStart: chosen.startSec,
+        origTrackIdx: projectRef.current.tracks.findIndex((t) => t.id === trackId),
+        groupIds: inMulti ? selIds : [chosen.id],
       };
     } else if (e.button === 0 && hit && edge) {
       setSelection({ startSec: 0, endSec: 0, trackIds: [trackId], clipIds: [hit.id] });
@@ -765,11 +848,22 @@ export default function Editor({
         origStart: hit.startSec,
       };
     } else if (e.button === 0) {
-      // click over overlapping clips cycles which one gets selected
+      // LMB only SELECTS (never moves — move is the middle button). Shift/Ctrl-click
+      // toggles a block in the multi-selection; a plain click selects the block under
+      // the cursor (cycling overlaps); a drag rubber-bands a region and selects the
+      // whole blocks it touches.
+      if ((e.shiftKey || e.ctrlKey || e.metaKey) && hit) {
+        const set = new Set(selectionRef.current.clipIds);
+        if (set.has(hit.id)) set.delete(hit.id);
+        else set.add(hit.id);
+        setSelection({ startSec: 0, endSec: 0, trackIds: [trackId], clipIds: [...set] });
+        return;
+      }
+      // click over overlapping clips cycles which one gets selected (applied on up)
       const ids = all.map((a) => a.clip.id);
       let target: string | null = null;
       if (ids.length) {
-        const cur = selectionRef.current.clipIds[0];
+        const cur = selectionRef.current.clipIds.length === 1 ? selectionRef.current.clipIds[0] : null;
         const pos = cur ? ids.indexOf(cur) : -1;
         target = pos >= 0 ? ids[(pos + 1) % ids.length]! : ids[ids.length - 1]!;
       }
@@ -800,9 +894,14 @@ export default function Editor({
           clipIds: [],
         });
       } else if (d.mode === 'move') {
-        const dxSec = (ev.clientX - d.startClientX) / pxRef.current;
-        const targetTrack = projectRef.current.tracks[trackIdxFromY(ev.clientY)]!;
-        const next = moveClip(d.base, d.clipId, d.origStart + dxSec, targetTrack.id);
+        let dxSec = (ev.clientX - d.startClientX) / pxRef.current;
+        // Snap the grabbed clip's start to the beat grid (hold Alt to bypass).
+        if (bpmSnapRef.current && !ev.altKey) {
+          const clip = d.base.tracks.flatMap((t) => t.clips).find((c) => c.id === d.clipId);
+          if (clip) dxSec = snapToBeat(clip.startSec + dxSec) - clip.startSec;
+        }
+        const deltaIdx = trackIdxFromY(ev.clientY) - d.origTrackIdx;
+        const next = moveClips(d.base, d.groupIds, dxSec, deltaIdx);
         projectRef.current = next;
         setProject(next);
         engineRef.current?.setProject(next);
@@ -820,7 +919,19 @@ export default function Editor({
         setProject(next);
         engineRef.current?.setProject(next);
       } else {
-        const dxSec = (ev.clientX - d.startClientX) / pxRef.current;
+        let dxSec = (ev.clientX - d.startClientX) / pxRef.current;
+        // Snap the dragged edge to the beat grid (hold Alt to bypass).
+        if (bpmSnapRef.current && !ev.altKey) {
+          if (d.mode === 'trim-start') {
+            dxSec = snapToBeat(d.origStart + dxSec) - d.origStart;
+          } else {
+            const clip = d.base.tracks.flatMap((t) => t.clips).find((c) => c.id === d.clipId);
+            if (clip) {
+              const origEnd = clipEnd(clip);
+              dxSec = snapToBeat(origEnd + dxSec) - origEnd;
+            }
+          }
+        }
         const next = trimClipEdge(d.base, d.clipId, d.mode === 'trim-start' ? 'start' : 'end', dxSec);
         projectRef.current = next;
         setProject(next);
@@ -836,10 +947,13 @@ export default function Editor({
       if (!d) return;
       if (d.mode === 'range') {
         const s = selectionRef.current;
-        // a click (no drag) over a clip selects that clip
-        if (s.endSec - s.startSec < 2 / pxRef.current && d.hitClipId) {
-          setSelection({ startSec: 0, endSec: 0, trackIds: [trackId], clipIds: [d.hitClipId] });
+        const dragged = s.endSec - s.startSec >= 2 / pxRef.current;
+        if (!dragged) {
+          // a simple click (no drag) selects the block under the cursor, else clears
+          if (d.hitClipId) setSelection({ startSec: 0, endSec: 0, trackIds: [trackId], clipIds: [d.hitClipId] });
+          else setSelection(EMPTY_SELECTION);
         }
+        // a drag keeps the region (time-range) selection set during the move
       } else if (projectRef.current !== d.base) {
         // Only record history if the drag actually changed something (a mere
         // click on an edge/handle leaves projectRef untouched).
@@ -860,7 +974,11 @@ export default function Editor({
       sel.endSec - sel.startSec > 1e-6 && sel.trackIds.includes(trackId);
     if (!overRange) {
       const { hit } = hitClipAt(trackId, localX);
-      if (hit) setSelection({ startSec: 0, endSec: 0, trackIds: [trackId], clipIds: [hit.id] });
+      // Keep the multi-selection if right-clicking one of its blocks (so menu
+      // actions apply to the whole group); otherwise select just the hit clip.
+      if (hit && !sel.clipIds.includes(hit.id)) {
+        setSelection({ startSec: 0, endSec: 0, trackIds: [trackId], clipIds: [hit.id] });
+      }
     }
     setMenu({ x: e.clientX, y: e.clientY, trackId });
   };
@@ -877,9 +995,11 @@ export default function Editor({
       const lx = ev.clientX - rect.left - sidebarWidthRef.current;
       const cur = Math.max(0, scrollRef.current + lx / pxRef.current);
       if (Math.abs(ev.clientX - clientX) > 3) dragged = true;
+      const a = bpmSnapRef.current ? snapToBeat(startSec) : startSec;
+      const b = bpmSnapRef.current ? snapToBeat(cur) : cur;
       setSelection({
-        startSec: Math.min(startSec, cur),
-        endSec: Math.max(startSec, cur),
+        startSec: Math.min(a, b),
+        endSec: Math.max(a, b),
         trackIds: allIds,
         clipIds: [],
       });
@@ -887,7 +1007,7 @@ export default function Editor({
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      if (!dragged) seekTo(startSec);
+      if (!dragged) seekTo(bpmSnapRef.current ? snapToBeat(startSec) : startSec);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -1005,6 +1125,13 @@ export default function Editor({
   };
 
   const getInputLevel = useCallback(() => inputRef.current?.getLevel() ?? 0, []);
+
+  // Resolve a tool's source to an AnalyserNode: Audio In, Audio Out (master), or a track.
+  const analyserForSource = (source: string): AnalyserNode | null => {
+    if (source === 'in') return inputRef.current?.getAnalyser() ?? null;
+    if (source === 'out') return engine?.getMasterAnalyser() ?? null;
+    return engine?.getAnalyser(source) ?? null;
+  };
 
   const armedTrack = () => projectRef.current.tracks.find((t) => t.armed);
 
@@ -1301,7 +1428,6 @@ export default function Editor({
   const canExportTrack = !!selectedTrack && selectedTrack.clips.length > 0;
   const duration = totalDuration(project);
   const viewportSec = viewportWidth / pxPerSec || 0;
-  const maxScroll = Math.max(0, duration - viewportSec * 0.5);
 
   return (
     <div className="panel editor">
@@ -1364,6 +1490,41 @@ export default function Editor({
             </button>
             <span className="hint">{bpm} BPM</span>
           </div>
+          <span className="sep" />
+          <label className="dev checkbox" title="Snap ao BPM: gruda cursor e clipes nas batidas">
+            <input type="checkbox" checked={bpmSnap} onChange={(e) => setBpmSnap(e.target.checked)} />
+            <Magnet size={15} />
+          </label>
+          {bpmSnap && (
+            <div className="metro-group">
+              <button
+                className="btn ghost nudge"
+                onClick={() => setBpmOffsetSec((s) => Math.max(-2, s - 0.005))}
+                title="Offset −5 ms"
+              >
+                −
+              </button>
+              <input
+                type="number"
+                min={-2000}
+                max={2000}
+                step={5}
+                value={Math.round(bpmOffsetSec * 1000)}
+                onChange={(e) =>
+                  setBpmOffsetSec(Math.max(-2, Math.min(2, (Number(e.target.value) || 0) / 1000)))
+                }
+                title="Offset dos pontos de snap (ms)"
+              />
+              <button
+                className="btn ghost nudge"
+                onClick={() => setBpmOffsetSec((s) => Math.min(2, s + 0.005))}
+                title="Offset +5 ms"
+              >
+                ＋
+              </button>
+              <span className="hint">offset ms</span>
+            </div>
+          )}
           <span className="sep" />
           <label className="dev" title="Playback speed">
             <Gauge size={14} />
@@ -1449,6 +1610,8 @@ export default function Editor({
         onStats={doStats}
         analyzing={analyzing}
         chordCount={chords.length}
+        toolsOpen={toolsOpen}
+        onToggleTools={() => setToolsOpen((v) => !v)}
       />
 
       <RecordBar
@@ -1466,6 +1629,7 @@ export default function Editor({
         getLevel={getInputLevel}
       />
 
+      <div className="editor-workspace">
       <div className="editor-timeline" ref={timelineRef}>
         <Ruler
           pxPerSec={pxPerSec}
@@ -1474,6 +1638,16 @@ export default function Editor({
           sidebarWidth={sidebarWidth}
           onPointerDown={onRulerPointerDown}
         />
+        {bpmSnap && (
+          <BeatStrip
+            bpm={bpm}
+            offsetSec={bpmOffsetSec}
+            pxPerSec={pxPerSec}
+            scrollSec={scrollSec}
+            viewportWidth={viewportWidth}
+            sidebarWidth={sidebarWidth}
+          />
+        )}
         {chords.length > 0 && (
           <ChordStrip
             chords={chords}
@@ -1521,15 +1695,31 @@ export default function Editor({
         </div>
         <div ref={playheadRef} className="editor-playhead" />
       </div>
+        {toolsOpen && (
+          <ToolsPanel
+            items={tools}
+            sources={[
+              { value: 'in', label: 'Audio In' },
+              { value: 'out', label: 'Audio Out' },
+              ...project.tracks.map((t) => ({ value: t.id, label: t.name })),
+            ]}
+            getAnalyser={analyserForSource}
+            playing={playing}
+            onAdd={addTool}
+            onRemove={removeTool}
+            onSetSource={setToolSource}
+            onClose={() => setToolsOpen(false)}
+          />
+        )}
+      </div>
 
-      <input
-        className="hscroll"
-        type="range"
-        min={0}
-        max={Math.max(0.001, maxScroll)}
-        step={0.01}
-        value={Math.min(scrollSec, maxScroll)}
-        onChange={(e) => setScrollSec(Number(e.target.value))}
+      <Overview
+        project={project}
+        scrollSec={scrollSec}
+        viewportSec={viewportSec}
+        viewportWidth={viewportWidth}
+        onScroll={setScrollSec}
+        onZoom={setPxPerSec}
       />
 
       {stats && <StatsPanel stats={stats} onClose={() => setStats(null)} />}

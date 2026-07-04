@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AudioLines, ChevronsLeft, Download, Library, Menu, Settings, X } from 'lucide-react';
+import { ChevronsLeft, Download, Library, Menu, Settings, X } from 'lucide-react';
 import type {
   ArrangementSummary,
   JobConfig,
@@ -188,7 +188,8 @@ export default function Home() {
         </button>
         <div className="brand">
           <span className="brand-icon">
-            <AudioLines size={18} />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon.png" alt="Prismaxim" width={32} height={32} />
           </span>
           <span className="label">Prismaxim</span>
         </div>

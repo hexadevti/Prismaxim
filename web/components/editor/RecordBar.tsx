@@ -58,11 +58,10 @@ export default function RecordBar(p: RecordBarProps) {
                 </option>
               ))}
             </select>
+            <div className="input-meter" title="Input level">
+              <div ref={meterRef} className="input-meter-fill" />
+            </div>
           </label>
-
-          <div className="input-meter" title="Input level">
-            <div ref={meterRef} className="input-meter-fill" />
-          </div>
 
           <label className="dev">
             Out

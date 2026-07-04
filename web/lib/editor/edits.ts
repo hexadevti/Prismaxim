@@ -108,6 +108,87 @@ export function splitAt(
   return next;
 }
 
+/**
+ * Copy a set of clips (by id) as a block group, preserving each clip's position
+ * relative to the group's earliest start and its original track. Reuses the
+ * range clipboard shape so `paste` handles both uniformly.
+ */
+export function copyClips(project: EditorProject, clipIds: string[]): Clipboard | null {
+  if (clipIds.length === 0) return null;
+  const found: { trackId: string; clip: Clip }[] = [];
+  let minStart = Infinity;
+  let maxEnd = 0;
+  for (const track of project.tracks) {
+    for (const clip of track.clips) {
+      if (!clipIds.includes(clip.id)) continue;
+      found.push({ trackId: track.id, clip });
+      if (clip.startSec < minStart) minStart = clip.startSec;
+      if (clipEnd(clip) > maxEnd) maxEnd = clipEnd(clip);
+    }
+  }
+  if (found.length === 0) return null;
+  const byTrack = new Map<string, ClipboardFragment[]>();
+  for (const { trackId, clip } of found) {
+    const arr = byTrack.get(trackId) ?? [];
+    arr.push({
+      buffer: clip.buffer,
+      offsetSec: clip.offsetSec,
+      durationSec: clip.durationSec,
+      startSecRel: clip.startSec - minStart,
+    });
+    byTrack.set(trackId, arr);
+  }
+  const tracks: ClipboardTrack[] = [...byTrack.entries()].map(([trackId, fragments]) => ({
+    trackId,
+    fragments,
+  }));
+  return { durationSec: maxEnd - minStart, tracks };
+}
+
+/**
+ * Move a set of clips together by a time delta and a track-index delta. The
+ * group is kept rigid: the time and track deltas are clamped so no clip crosses
+ * time 0 or the first/last track, preserving the relative layout.
+ */
+export function moveClips(
+  project: EditorProject,
+  clipIds: string[],
+  deltaSec: number,
+  deltaTrackIdx: number,
+): EditorProject {
+  if (clipIds.length === 0) return project;
+  const next = cloneProject(project);
+  const moving: { clip: Clip; fromIdx: number }[] = [];
+  next.tracks.forEach((track, idx) => {
+    for (const clip of track.clips) {
+      if (clipIds.includes(clip.id)) moving.push({ clip, fromIdx: idx });
+    }
+  });
+  if (moving.length === 0) return project;
+
+  let minStart = Infinity;
+  let minIdx = Infinity;
+  let maxIdx = -Infinity;
+  for (const { clip, fromIdx } of moving) {
+    if (clip.startSec < minStart) minStart = clip.startSec;
+    if (fromIdx < minIdx) minIdx = fromIdx;
+    if (fromIdx > maxIdx) maxIdx = fromIdx;
+  }
+  const lastIdx = next.tracks.length - 1;
+  const dSec = Math.max(deltaSec, -minStart);
+  const dIdx = Math.max(-minIdx, Math.min(lastIdx - maxIdx, deltaTrackIdx));
+
+  for (const track of next.tracks) {
+    track.clips = track.clips.filter((c) => !clipIds.includes(c.id));
+  }
+  for (const { clip, fromIdx } of moving) {
+    clip.startSec = Math.max(0, clip.startSec + dSec);
+    next.tracks[fromIdx + dIdx]!.clips.push(clip);
+  }
+  for (const track of next.tracks) sortClips(track);
+  return next;
+}
+
 /** Copy the selected time range across the selected tracks. */
 export function copyRange(project: EditorProject, sel: Selection): Clipboard | null {
   if (sel.endSec - sel.startSec <= EPS || sel.trackIds.length === 0) return null;

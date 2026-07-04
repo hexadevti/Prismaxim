@@ -196,11 +196,18 @@ a,
   height: 32px;
   flex-shrink: 0;
   border-radius: 9px;
+  overflow: hidden;
   display: grid;
   place-items: center;
-  font-size: 16px;
-  background: var(--grad-primary);
+  background: #0a0d13;
   box-shadow: var(--glow-primary);
+}
+
+.sidebar .brand-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .sidebar nav {
@@ -886,6 +893,57 @@ input[type='url']:focus {
   font-size: 11px;
 }
 
+/* Custom, styled checkboxes everywhere (replaces the generic native box). */
+input[type='checkbox'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin: 0;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--panel);
+  cursor: pointer;
+  position: relative;
+  vertical-align: middle;
+  transition: background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+input[type='checkbox']:hover {
+  border-color: var(--accent-2);
+}
+
+input[type='checkbox']:checked {
+  background: var(--grad-primary);
+  border-color: transparent;
+  box-shadow: var(--glow-primary);
+}
+
+/* The check mark. */
+input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 4.5px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
+input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+input[type='checkbox']:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .tp-btn {
   min-width: 40px;
   justify-content: center;
@@ -950,6 +1008,12 @@ input[type='url']:focus {
   color: var(--muted);
 }
 
+/* In/Out device pickers grow to show the full source names (wrap when tight). */
+.record-bar .dev:has(select) {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
 .record-bar .dev select {
   background: var(--panel);
   color: var(--text);
@@ -957,7 +1021,9 @@ input[type='url']:focus {
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 12px;
-  max-width: 200px;
+  flex: 1;
+  min-width: 0;
+  max-width: 520px;
 }
 
 .record-bar .dev.checkbox {
@@ -977,6 +1043,7 @@ input[type='url']:focus {
 .input-meter {
   width: 84px;
   height: 10px;
+  flex: 0 0 84px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -1056,6 +1123,28 @@ input[type='url']:focus {
   display: block;
 }
 
+/* BPM beat-count strip (shown when snap is on) */
+.beat-strip-row {
+  display: flex;
+  height: 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.beat-strip-gutter {
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.beat-strip-canvas {
+  display: block;
+}
+
 /* piano-roll (attached MIDI lane) */
 .pianoroll-row {
   display: flex;
@@ -1132,6 +1221,48 @@ input[type='url']:focus {
   padding: 3px 6px;
 }
 
+/* Per-track view toggles (spectrum on/off, waveform full/simplified) — a small
+   floating control group in the lane's top-right corner. */
+.lane-view-toggles {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 3px;
+  z-index: 2;
+  opacity: 0.55;
+  transition: opacity 0.12s ease;
+}
+
+.lane-row:hover .lane-view-toggles,
+.lane-view-toggles:hover {
+  opacity: 1;
+}
+
+.view-toggle {
+  width: 22px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(11, 14, 20, 0.74);
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.view-toggle:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.view-toggle.on {
+  background: rgba(52, 208, 238, 0.18);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .midi-inst {
   background: var(--panel);
   color: var(--text);
@@ -1171,6 +1302,7 @@ select:hover {
   position: relative;
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-strong);
@@ -1342,13 +1474,56 @@ body.drag-trim * {
   position: relative;
 }
 
-.lane-volume {
+/* Combined volume fader + VU meter: the range slider overlays the meter to
+   save a row in the lane sidebar. The meter is the (transparent-track) slider's
+   background; a thin thumb reads as the fader handle. */
+.lane-fader {
+  position: relative;
+  height: 15px;
   display: flex;
-  padding-top: 2px;
+  align-items: center;
+  margin-top: 2px;
 }
 
-.lane-volume input[type='range'] {
+.lane-fader-input {
+  position: relative;
+  z-index: 1;
   width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: ew-resize;
+}
+
+.lane-fader-input::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 100%;
+}
+.lane-fader-input::-moz-range-track {
+  background: transparent;
+  height: 100%;
+}
+
+.lane-fader-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 5px;
+  height: 15px;
+  border-radius: 2px;
+  background: var(--text);
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+  cursor: ew-resize;
+}
+.lane-fader-input::-moz-range-thumb {
+  width: 5px;
+  height: 15px;
+  border-radius: 2px;
+  background: var(--text);
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  cursor: ew-resize;
 }
 
 .sidebar-resize {
@@ -1401,6 +1576,57 @@ body.drag-trim * {
 .hscroll {
   width: 100%;
   margin-top: 10px;
+}
+
+/* Overview minimap (horizontal navigation): the whole project in miniature with
+   a draggable window marking the visible range. Replaces the plain scrollbar. */
+.overview {
+  position: relative;
+  height: 44px;
+  margin-top: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: #0a0d13;
+  overflow: hidden;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.overview-canvas {
+  display: block;
+  pointer-events: none;
+}
+
+/* Everything outside the window is dimmed via the window's huge outset shadow. */
+.overview-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(123, 124, 255, 0.14);
+  border-left: 1px solid var(--accent-2);
+  border-right: 1px solid var(--accent-2);
+  box-shadow: 0 0 0 2000px rgba(4, 6, 12, 0.32);
+  cursor: grab;
+}
+
+.overview-window:active {
+  cursor: grabbing;
+}
+
+.overview-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: ew-resize;
+}
+
+.overview-handle.left {
+  left: -4px;
+}
+
+.overview-handle.right {
+  right: -4px;
 }
 
 /* music stats dashboard */
@@ -1529,4 +1755,188 @@ body.drag-trim * {
   right: 0;
   left: auto;
   min-width: 160px;
+}
+
+/* ── Tools sidebar (output-audio visualizers) ─────────────────────────── */
+
+/* Push the Tools toggle group to the far right of the toolbar. */
+.tool-group-end {
+  margin-left: auto;
+  padding-right: 0;
+  border-right: none;
+}
+
+/* Timeline + tools sidebar sit side by side and share the vertical space. */
+.editor-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 10px;
+}
+
+/* Per-track VU meter — sits behind the volume slider inside .lane-fader. */
+.lane-vu {
+  position: absolute;
+  inset: 0;
+  border-radius: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.lane-vu-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--ok);
+  opacity: 0.85;
+}
+
+.editor-tools {
+  width: 264px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #15181f, #0f1219);
+  overflow-y: auto;
+}
+
+.tools-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tools-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tools-title strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tools-close {
+  padding: 4px 6px;
+}
+
+.tools-add {
+  display: flex;
+  gap: 6px;
+}
+
+.tools-add .btn {
+  flex: 1;
+}
+
+.tools-empty {
+  margin: 4px 2px;
+  line-height: 1.5;
+}
+
+.tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tool-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px 10px;
+}
+
+.tool-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+/* Per-tool source picker (Audio In / Audio Out / a track). */
+.tool-source {
+  width: 100%;
+  margin-bottom: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 7px;
+  font-size: 12px;
+}
+
+.tool-source:hover {
+  border-color: var(--border-strong);
+}
+
+.tool-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.tool-card .mini {
+  width: 22px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tool-card .mini:hover {
+  background: var(--panel-3);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.tool-card-body {
+  display: block;
+}
+
+/* Spectrum canvas fills the card width. */
+.tool-canvas {
+  display: block;
+  width: 100%;
+  height: 96px;
+}
+
+/* Output VU meter: horizontal bar with a slow-decay peak-hold marker. */
+.vu-meter {
+  position: relative;
+  height: 14px;
+  border-radius: 5px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.vu-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--ok);
+  transition: width 0.03s linear;
+}
+
+.vu-peak {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0%;
+  width: 2px;
+  background: var(--text);
+  opacity: 0.85;
 }

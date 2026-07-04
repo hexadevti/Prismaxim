@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Circle, Eraser, Music4, Trash2 } from 'lucide-react';
+import { AudioLines, AudioWaveform, Circle, Eraser, Music4, Trash2 } from 'lucide-react';
 import { clipEnd, type EditorTrack, type MidiNote, type Selection } from '@/lib/editor/model';
 import { computeClipPeaks } from '@/lib/editor/peaks';
 import { drawSpectrum, freqBuffer } from '@/lib/mixer/spectrum';
+import { meterFraction, rmsLevel, timeBuffer } from '@/lib/mixer/meter';
 import { INSTRUMENT_GROUPS, getInstrument } from '@/lib/editor/instruments';
 
 export const LANE_HEIGHT = 88;
@@ -139,10 +140,14 @@ export default function TimelineTrack({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const specRef = useRef<HTMLCanvasElement>(null);
   const recRef = useRef<HTMLCanvasElement>(null);
+  const vuRef = useRef<HTMLDivElement>(null);
   const getRecRef = useRef(getRecordPeaks);
   getRecRef.current = getRecordPeaks;
   const [editing, setEditing] = useState(false);
   const [nameVal, setNameVal] = useState(track.name);
+  // Per-track view options (defaults: spectrum on, simplified waveform).
+  const [spectrumOn, setSpectrumOn] = useState(true);
+  const [waveFull, setWaveFull] = useState(false);
   const isMidi = !!track.midi && track.clips.length === 0;
 
   // Cursor hint for a point on the lane: pointer over a fade handle, ew-resize
@@ -167,11 +172,11 @@ export default function TimelineTrack({
     return 'crosshair';
   };
 
-  // Live spectrum overlay on the lane background (while playing).
+  // Live spectrum overlay on the lane background (while playing, when enabled).
   useEffect(() => {
     const spec = specRef.current;
     if (!spec) return;
-    if (!analyser || !playing) {
+    if (!analyser || !playing || !spectrumOn) {
       const c = spec.getContext('2d');
       c?.clearRect(0, 0, spec.width, spec.height);
       return;
@@ -184,7 +189,33 @@ export default function TimelineTrack({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [analyser, playing, track.color]);
+  }, [analyser, playing, spectrumOn, track.color]);
+
+  // Per-track VU meter in the lane sidebar (level of this track, while playing).
+  useEffect(() => {
+    const bar = vuRef.current;
+    if (!bar) return;
+    const reset = () => {
+      bar.style.width = '0%';
+    };
+    if (!analyser || !playing) {
+      reset();
+      return;
+    }
+    const buf = timeBuffer(analyser);
+    let raf = 0;
+    const tick = () => {
+      const frac = meterFraction(rmsLevel(analyser, buf));
+      bar.style.width = `${frac * 100}%`;
+      bar.style.background = frac > 0.92 ? 'var(--danger)' : 'var(--ok)';
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      reset();
+    };
+  }, [analyser, playing]);
 
   // Live recording waveform: a growing overlay drawn each frame while this track
   // is the recording target (the real clip only lands on stop).
@@ -290,17 +321,33 @@ export default function TimelineTrack({
         ctx.fillStyle = 'rgba(255,255,255,0.04)';
         ctx.fillRect(vx0, 4, vx1 - vx0, h - 8);
 
-        // waveform
+        // waveform: full detail (min/max per px) or a simplified coarse envelope
         const peaks = computeClipPeaks(clip, pxPerSec);
         ctx.fillStyle = track.color;
         ctx.globalAlpha = 0.9;
         const scale = (h - 16) / 2;
-        for (let b = 0; b < peaks.buckets; b++) {
-          const x = x0 + b;
-          if (x < 0 || x > w) continue;
-          const top = mid - peaks.max[b]! * scale;
-          const bottom = mid - peaks.min[b]! * scale;
-          ctx.fillRect(x, top, 1, Math.max(1, bottom - top));
+        if (waveFull) {
+          for (let b = 0; b < peaks.buckets; b++) {
+            const x = x0 + b;
+            if (x < 0 || x > w) continue;
+            const top = mid - peaks.max[b]! * scale;
+            const bottom = mid - peaks.min[b]! * scale;
+            ctx.fillRect(x, top, 1, Math.max(1, bottom - top));
+          }
+        } else {
+          // coarse symmetric bars: fewer, wider blocks for a lighter look
+          const STEP = 3;
+          for (let b = 0; b < peaks.buckets; b += STEP) {
+            const x = x0 + b;
+            if (x + STEP < 0 || x > w) continue;
+            let amp = 0;
+            for (let k = b; k < b + STEP && k < peaks.buckets; k++) {
+              const a = Math.max(Math.abs(peaks.max[k]!), Math.abs(peaks.min[k]!));
+              if (a > amp) amp = a;
+            }
+            const barH = Math.max(1, amp * scale * 2);
+            ctx.fillRect(x, mid - barH / 2, STEP - 1, barH);
+          }
         }
         ctx.globalAlpha = 1;
 
@@ -353,7 +400,7 @@ export default function TimelineTrack({
         if (fadeOut > 1e-6) drawFade(x1, secToX(clipEnd(clip) - fadeOut));
       }
     }
-  }, [track, pxPerSec, scrollSec, viewportWidth, laneHeight, selection, isMidi]);
+  }, [track, pxPerSec, scrollSec, viewportWidth, laneHeight, selection, isMidi, waveFull]);
 
   return (
     <div className={`lane-row${selected ? ' selected' : ''}`} style={{ height: laneHeight }}>
@@ -433,14 +480,22 @@ export default function TimelineTrack({
             </button>
           )}
         </div>
-        <div className="lane-volume" onPointerDown={(e) => e.stopPropagation()}>
+        {/* Combined fader: the volume slider overlaid on the track's VU meter. */}
+        <div
+          className="lane-fader"
+          title={`Volume ${(track.volume * 100).toFixed(0)}% · track level`}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="lane-vu">
+            <div ref={vuRef} className="lane-vu-fill" />
+          </div>
           <input
+            className="lane-fader-input"
             type="range"
             min={0}
             max={1.5}
             step={0.01}
             value={track.volume}
-            title={`Volume ${(track.volume * 100).toFixed(0)}%`}
             onChange={(e) => onSetVolume(track.id, Number(e.target.value))}
           />
         </div>
@@ -481,6 +536,24 @@ export default function TimelineTrack({
           className="lane-rec"
           style={{ width: viewportWidth, height: laneHeight }}
         />
+        {!isMidi && (
+          <div className="lane-view-toggles" onPointerDown={(e) => e.stopPropagation()}>
+            <button
+              className={`view-toggle${spectrumOn ? ' on' : ''}`}
+              title={`Spectrum analyzer: ${spectrumOn ? 'on' : 'off'}`}
+              onClick={() => setSpectrumOn((v) => !v)}
+            >
+              <AudioLines size={12} />
+            </button>
+            <button
+              className={`view-toggle${waveFull ? ' on' : ''}`}
+              title={`Waveform: ${waveFull ? 'full detail' : 'simplified'}`}
+              onClick={() => setWaveFull((v) => !v)}
+            >
+              <AudioWaveform size={12} />
+            </button>
+          </div>
+        )}
         {isMidi && (
           <div className="lane-midi-controls">
             <select

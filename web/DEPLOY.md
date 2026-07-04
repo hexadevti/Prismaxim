@@ -65,5 +65,9 @@ headers:
 - **First separation** downloads the ~258 MB `htdemucs_6s.onnx` model (then cached
   in Cache Storage). Optionally self-host it and set `NEXT_PUBLIC_MODEL_URL`; it
   must be served CORS-enabled.
+- **Cloud "fast mode" (optional):** to offer GPU separation, set
+  `NEXT_PUBLIC_CLOUD_SEPARATE_URL` (and `NEXT_PUBLIC_CLOUD_TOKEN` if the endpoint
+  needs one) in the site's environment — they're read at build time and there is
+  no in-app editing. An empty URL hides the "Cloud (fast)" toggle on Import.
 - **Storage:** the app requests persistent storage on first save; large libraries
   can still hit the browser's quota. Usage is shown under **Options**.

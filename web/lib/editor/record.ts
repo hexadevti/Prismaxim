@@ -82,6 +82,11 @@ export class InputController {
     this.engine.setMonitorEnabled(on);
   }
 
+  /** The input path's analyser (for input-source visualizers). Null until opened. */
+  getAnalyser(): AnalyserNode | null {
+    return this.analyser;
+  }
+
   /** Current input level (0..1, ~peak of RMS). Returns 0 if no input. */
   getLevel(): number {
     if (!this.analyser || !this.meterBuf) return 0;

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { checkBackend } from '@/lib/engines/client';
 import { checkCloud } from '@/lib/engines/cloud';
-import { getCloudToken, getCloudUrl, setCloudToken, setCloudUrl } from '@/lib/cloudConfig';
+import { getCloudUrl } from '@/lib/cloudConfig';
 import { IS_DESKTOP } from '@/lib/env';
 import { store } from '@/lib/store';
 
@@ -13,16 +13,10 @@ function fmtBytes(n: number): string {
   return `${Math.round(n / 1e3)} KB`;
 }
 
-/** Optional cloud "fast mode" endpoint — available in both builds. */
+/** Optional cloud "fast mode" endpoint — configured via site env vars (read-only). */
 function CloudOptions() {
-  const [url, setUrl] = useState('');
-  const [token, setToken] = useState('');
+  const url = getCloudUrl();
   const [reachable, setReachable] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    setUrl(getCloudUrl());
-    setToken(getCloudToken());
-  }, []);
 
   useEffect(() => {
     if (!url) {
@@ -41,35 +35,15 @@ function CloudOptions() {
 
   return (
     <div className="field">
-      <label htmlFor="cloudurl">Cloud separation (optional, "fast mode")</label>
-      <input
-        id="cloudurl"
-        type="text"
-        value={url}
-        onChange={(e) => {
-          setUrl(e.target.value);
-          setCloudUrl(e.target.value);
-        }}
-        placeholder="https://…modal.run"
-      />
-      <input
-        type="password"
-        value={token}
-        onChange={(e) => {
-          setToken(e.target.value);
-          setCloudToken(e.target.value);
-        }}
-        placeholder="Token (only if the endpoint requires one)"
-        style={{ marginTop: 6 }}
-      />
-      <p className={reachable === false ? 'err' : 'hint'} style={{ marginTop: 6 }}>
+      <label>Cloud separation (optional, &quot;fast mode&quot;)</label>
+      <p className={reachable === false ? 'err' : 'hint'}>
         {!url
-          ? 'Set a GPU endpoint (see /cloud) to enable the "Cloud (fast)" toggle on Import.'
+          ? 'Not configured. Set NEXT_PUBLIC_CLOUD_SEPARATE_URL (and NEXT_PUBLIC_CLOUD_TOKEN if the endpoint needs one) in the site environment to enable the “Cloud (fast)” toggle on Import.'
           : reachable === null
-            ? 'Checking endpoint…'
+            ? `Checking ${url}…`
             : reachable
-              ? '✓ Cloud endpoint reachable'
-              : '✗ Cloud endpoint not reachable'}
+              ? `✓ Cloud endpoint reachable — ${url}`
+              : `✗ Cloud endpoint not reachable — ${url}`}
       </p>
     </div>
   );

@@ -25,6 +25,8 @@ type SinkCapableContext = AudioContext & {
 export class EditorEngine {
   readonly ctx: SinkCapableContext;
   private master: GainNode;
+  /** Taps the whole output mix (post-master) for output-level visualizers. */
+  private masterAnalyser: AnalyserNode;
   /** Mic/instrument monitoring path (independent of track gains). */
   readonly monitorGain: GainNode;
   private trackNodes = new Map<string, TrackNode>();
@@ -54,7 +56,11 @@ export class EditorEngine {
     this.ctx = new AudioContext({ sampleRate: project.sampleRate });
     this.project = project;
     this.master = this.ctx.createGain();
-    this.master.connect(this.ctx.destination);
+    this.masterAnalyser = this.ctx.createAnalyser();
+    this.masterAnalyser.fftSize = 1024;
+    this.masterAnalyser.smoothingTimeConstant = 0.8;
+    this.master.connect(this.masterAnalyser);
+    this.masterAnalyser.connect(this.ctx.destination);
     this.monitorGain = this.ctx.createGain();
     this.monitorGain.gain.value = 0;
     this.monitorGain.connect(this.ctx.destination);
@@ -113,6 +119,11 @@ export class EditorEngine {
 
   getAnalyser(trackId: string): AnalyserNode | undefined {
     return this.trackNodes.get(trackId)?.analyser;
+  }
+
+  /** Analyser tapping the full output mix (for output-level VU / spectrum tools). */
+  getMasterAnalyser(): AnalyserNode {
+    return this.masterAnalyser;
   }
 
   get duration(): number {
