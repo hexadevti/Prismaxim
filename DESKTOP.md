@@ -82,4 +82,18 @@ Getting a certificate:
   isolation and AudioWorklet recorder all work like in Chrome/Edge.
 - If the backend fails to boot, the window won't open (the bundled server currently `exit`s on a
   fatal startup error). Run `npm run desktop:dev` from a terminal to see the backend logs.
-- Optional niceties not wired yet: app icon (`build.win.icon`) and auto-update.
+
+## Auto-update
+
+The installed app can update itself from GitHub Releases (via `electron-updater`). **Settings →
+App version & updates** checks for a newer release and, in one click, downloads it and offers a
+"Restart & install".
+
+- It reads the `build.publish` (GitHub `hexadevti/Prismaxim`) config baked into the app, so the
+  release must carry the update metadata: the CI [`release.yml`](.github/workflows/release.yml)
+  uploads `latest.yml` (+ the `.exe.blockmap`) alongside the installer. `npm run dist` runs
+  electron-builder with `-p never`, so it *generates* that metadata locally without publishing —
+  the workflow does the upload.
+- Updates only work in the **packaged** app; in `npm run dev` the button reports that plainly.
+- The renderer talks to the updater through a small preload bridge (`desktop/preload.cjs` →
+  `window.prismaxim.updates`), consumed by [web/lib/desktop.ts](web/lib/desktop.ts).
