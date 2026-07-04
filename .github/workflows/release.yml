@@ -83,7 +83,9 @@ jobs:
           # without hitting anonymous rate limits. Signing stays off unless CSC_* is set.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # gh CLI is preinstalled on the runner; creates the tag + release and uploads the .exe.
+      # gh CLI is preinstalled on the runner; creates the tag + release and uploads the
+      # installer plus the update metadata electron-updater reads (latest.yml, and the
+      # optional .blockmap that enables differential downloads).
       - name: Publish GitHub Release
         shell: bash
         env:
@@ -91,5 +93,8 @@ jobs:
         run: |
           gh release create "${{ needs.check.outputs.tag }}" \
             desktop/release/*.exe \
+            desktop/release/latest.yml \
             --title "Prismaxim ${{ needs.check.outputs.tag }}" \
             --generate-notes
+          # Best-effort: attach the blockmap if electron-builder produced one.
+          gh release upload "${{ needs.check.outputs.tag }}" desktop/release/*.exe.blockmap || true

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { checkBackend } from '@/lib/engines/client';
 import { checkCloud } from '@/lib/engines/cloud';
 import { getCloudUrl } from '@/lib/cloudConfig';
+import { getDesktopBridge, type UpdateStatus } from '@/lib/desktop';
 import { IS_DESKTOP } from '@/lib/env';
 import { store } from '@/lib/store';
 
@@ -45,6 +46,104 @@ function CloudOptions() {
               ? `✓ Cloud endpoint reachable — ${url}`
               : `✗ Cloud endpoint not reachable — ${url}`}
       </p>
+    </div>
+  );
+}
+
+/** Desktop only: check GitHub for a new release and update in one click. */
+function UpdateSection() {
+  const bridge = getDesktopBridge();
+  const [version, setVersion] = useState<string | null>(null);
+  const [state, setState] = useState<UpdateStatus>({ status: 'checking' });
+
+  useEffect(() => {
+    if (!bridge) return;
+    bridge.updates.getVersion().then(setVersion).catch(() => {});
+    const off = bridge.updates.onEvent(setState);
+    // Check once when the panel opens, so an available update shows immediately.
+    bridge.updates.check().catch(() => {});
+    return off;
+  }, [bridge]);
+
+  // Not running inside the Electron app (e.g. `next dev`): nothing to update.
+  if (!bridge) return null;
+
+  const check = () => {
+    setState({ status: 'checking' });
+    bridge.updates.check().catch(() => {});
+  };
+  const download = () => {
+    setState({ status: 'downloading', percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 });
+    bridge.updates.download().catch(() => {});
+  };
+  const install = () => void bridge.updates.install();
+
+  return (
+    <div className="field">
+      <label>App version &amp; updates</label>
+      <p className="hint" style={{ marginBottom: 10 }}>
+        Current version: <strong>{version ?? '…'}</strong>
+      </p>
+
+      {state.status === 'checking' && <p className="hint">Checking for updates…</p>}
+
+      {state.status === 'not-available' && (
+        <>
+          <p className="hint">✓ You’re on the latest version.</p>
+          <button className="btn secondary" onClick={check} style={{ marginTop: 10 }}>
+            Check again
+          </button>
+        </>
+      )}
+
+      {state.status === 'available' && (
+        <>
+          <p className="hint">
+            A new version{state.version ? ` (${state.version})` : ''} is available.
+          </p>
+          <button className="btn" onClick={download} style={{ marginTop: 10 }}>
+            Download &amp; install
+          </button>
+        </>
+      )}
+
+      {state.status === 'downloading' && (
+        <div className="progress-wrap">
+          <div className="phase-label">
+            <span>Downloading update…</span>
+            <span className="engine">{Math.round(state.percent)}%</span>
+          </div>
+          <div className="bar">
+            <span style={{ width: `${Math.max(2, state.percent)}%` }} />
+          </div>
+          {state.total > 0 && (
+            <p className="hint" style={{ marginTop: 6 }}>
+              {fmtBytes(state.transferred)} of {fmtBytes(state.total)}
+              {state.bytesPerSecond > 0 ? ` · ${fmtBytes(state.bytesPerSecond)}/s` : ''}
+            </p>
+          )}
+        </div>
+      )}
+
+      {state.status === 'downloaded' && (
+        <>
+          <p className="hint">
+            ✓ Update{state.version ? ` ${state.version}` : ''} downloaded — restart to finish.
+          </p>
+          <button className="btn" onClick={install} style={{ marginTop: 10 }}>
+            Restart &amp; install
+          </button>
+        </>
+      )}
+
+      {state.status === 'error' && (
+        <>
+          <p className="err">{state.error}</p>
+          <button className="btn secondary" onClick={check} style={{ marginTop: 10 }}>
+            Try again
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -94,6 +193,7 @@ function DesktopOptions({
         The local service powers YouTube import, native stem separation, the library, and saving
         edited projects. It starts automatically with the app.
       </p>
+      <UpdateSection />
     </div>
   );
 }

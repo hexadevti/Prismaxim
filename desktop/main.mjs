@@ -3,10 +3,13 @@
 // blocks the window's UI thread — and opens a window pointed at it. Running
 // locally means yt-dlp uses the user's own (residential) IP, so YouTube import
 // works without cookies/proxies.
-import { app, BrowserWindow, dialog, shell, utilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, utilityProcess } from 'electron';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import electronUpdater from 'electron-updater'; // CJS package — default import, then destructure
+
+const { autoUpdater } = electronUpdater;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PRISMAXIM_PORT ?? 8787);
@@ -31,6 +34,81 @@ const backendEnv = {
 };
 
 let backend = null;
+let mainWindow = null;
+
+// ── Auto-update (GitHub Releases via electron-updater) ────────────────────────
+// The packaged app carries its provider/owner/repo in app-update.yml (generated
+// from `build.publish` in package.json). We check/download on demand from the
+// Settings screen rather than silently, so the user is always in control.
+autoUpdater.autoDownload = false; // wait for an explicit "Download" click
+autoUpdater.autoInstallOnAppQuit = true; // if already downloaded, install on next quit
+
+function sendUpdate(payload) {
+  try {
+    mainWindow?.webContents.send('updates:event', payload);
+  } catch {
+    /* window already gone */
+  }
+}
+
+function wireAutoUpdater() {
+  autoUpdater.on('checking-for-update', () => sendUpdate({ status: 'checking' }));
+  autoUpdater.on('update-available', (info) =>
+    sendUpdate({ status: 'available', version: info?.version }),
+  );
+  autoUpdater.on('update-not-available', (info) =>
+    sendUpdate({ status: 'not-available', version: info?.version }),
+  );
+  autoUpdater.on('download-progress', (p) =>
+    sendUpdate({
+      status: 'downloading',
+      percent: p?.percent ?? 0,
+      transferred: p?.transferred ?? 0,
+      total: p?.total ?? 0,
+      bytesPerSecond: p?.bytesPerSecond ?? 0,
+    }),
+  );
+  autoUpdater.on('update-downloaded', (info) =>
+    sendUpdate({ status: 'downloaded', version: info?.version }),
+  );
+  autoUpdater.on('error', (err) => sendUpdate({ status: 'error', error: String(err?.message ?? err) }));
+
+  ipcMain.handle('updates:getVersion', () => app.getVersion());
+
+  ipcMain.handle('updates:check', async () => {
+    // electron-updater only works in the packaged app (it reads app-update.yml
+    // from the install). In dev there's nothing to update — say so plainly.
+    if (!app.isPackaged) {
+      const error = 'Updates are only available in the installed app.';
+      sendUpdate({ status: 'error', error });
+      return { ok: false, error };
+    }
+    try {
+      await autoUpdater.checkForUpdates();
+      return { ok: true };
+    } catch (err) {
+      const error = String(err?.message ?? err);
+      sendUpdate({ status: 'error', error });
+      return { ok: false, error };
+    }
+  });
+
+  ipcMain.handle('updates:download', async () => {
+    try {
+      await autoUpdater.downloadUpdate();
+      return { ok: true };
+    } catch (err) {
+      const error = String(err?.message ?? err);
+      sendUpdate({ status: 'error', error });
+      return { ok: false, error };
+    }
+  });
+
+  // Quit and launch the downloaded installer. `before-quit` tears down the backend.
+  ipcMain.handle('updates:install', () => autoUpdater.quitAndInstall());
+}
+
+wireAutoUpdater();
 
 function startBackend() {
   // A dedicated Node process: its CPU-heavy work can't freeze the UI/window.
@@ -74,7 +152,14 @@ function createWindow() {
     backgroundColor: '#0b0e14',
     autoHideMenuBar: true,
     icon: join(here, 'build', 'icon.png'),
-    webPreferences: { contextIsolation: true },
+    webPreferences: {
+      contextIsolation: true,
+      preload: join(here, 'preload.cjs'), // exposes window.prismaxim.updates
+    },
+  });
+  mainWindow = win;
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
   });
   void win.loadURL(BASE);
   // External links (help, YouTube) open in the system browser.
