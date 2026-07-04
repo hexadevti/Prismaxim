@@ -90,6 +90,7 @@ import {
   type ToolInstance,
   type ToolKind,
 } from '@/lib/editor/tools';
+import { IS_MOBILE } from '@/lib/env';
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const EDGE_PX = 6;
@@ -248,6 +249,9 @@ export default function Editor({
   const rowsRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef(false);
+  // Mobile: true while a two-finger pinch-zoom is in progress, so the one-finger
+  // pan drag stands down (see the wheel/gesture effect and onLanePointerDown).
+  const pinchingRef = useRef(false);
 
   // Refs mirroring state for use inside window listeners.
   const projectRef = useRef(project);
@@ -266,7 +270,8 @@ export default function Editor({
   engineRef.current = engine;
   metroOnRef.current = metroOn;
   bpmRef.current = bpm;
-  bpmSnapRef.current = bpmSnap;
+  // Beat-snap is desktop-only; force it off on mobile so drag/trim/seek never snap.
+  bpmSnapRef.current = bpmSnap && !IS_MOBILE;
   bpmOffsetSecRef.current = bpmOffsetSec;
   rateRef.current = rate;
   keepPitchRef.current = keepPitch;
@@ -423,6 +428,57 @@ export default function Editor({
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  /* ---------- mobile two-finger pinch-to-zoom ---------- */
+  useEffect(() => {
+    if (!IS_MOBILE) return;
+    const el = timelineRef.current;
+    if (!el) return;
+    const pts = new Map<number, { x: number; y: number }>();
+    let startDist = 0;
+    let startPx = 0;
+    let anchorSec = 0;
+    let midLocalX = 0;
+    const dist = () => {
+      const v = [...pts.values()];
+      return Math.hypot(v[0]!.x - v[1]!.x, v[0]!.y - v[1]!.y);
+    };
+    const onDown = (e: PointerEvent) => {
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 2) {
+        pinchingRef.current = true;
+        dragRef.current = null; // cancel any in-progress one-finger pan/trim
+        const v = [...pts.values()];
+        const rect = el.getBoundingClientRect();
+        midLocalX = (v[0]!.x + v[1]!.x) / 2 - rect.left - sidebarWidthRef.current;
+        anchorSec = scrollRef.current + midLocalX / pxRef.current;
+        startDist = dist();
+        startPx = pxRef.current;
+      }
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (!pinchingRef.current || pts.size !== 2 || startDist === 0) return;
+      const nextPx = clamp(startPx * (dist() / startDist), 2, 500);
+      setPxPerSec(nextPx);
+      setScrollSec(Math.max(0, anchorSec - midLocalX / nextPx));
+    };
+    const onUp = (e: PointerEvent) => {
+      pts.delete(e.pointerId);
+      if (pts.size < 2) pinchingRef.current = false;
+    };
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
+    return () => {
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointercancel', onUp);
+    };
   }, []);
 
   /* ---------- edit commit + history ---------- */
@@ -847,6 +903,42 @@ export default function Editor({
         startClientX: e.clientX,
         origStart: hit.startSec,
       };
+    } else if (e.button === 0 && IS_MOBILE) {
+      // Mobile: one-finger drag pans the timeline (horizontal = time, vertical =
+      // the track list); a tap selects the clip under the finger. Two-finger
+      // pinch-zoom is handled separately and stands this down via pinchingRef.
+      const anchorSec = sec;
+      const startClientX = e.clientX;
+      const startClientY = e.clientY;
+      const startScrollTop = rowsRef.current?.scrollTop ?? 0;
+      const tapId = hit?.id ?? null;
+      let moved = false;
+      const onMove = (ev: PointerEvent) => {
+        // A pinch anywhere during this touch counts as movement, so lifting off
+        // doesn't fire a spurious tap-select.
+        if (pinchingRef.current) {
+          moved = true;
+          return;
+        }
+        if (Math.abs(ev.clientX - startClientX) > 4 || Math.abs(ev.clientY - startClientY) > 4) {
+          moved = true;
+        }
+        const rect = timelineRef.current!.getBoundingClientRect();
+        const lx = ev.clientX - rect.left - sidebarWidthRef.current;
+        setScrollSec(Math.max(0, anchorSec - lx / pxRef.current));
+        if (rowsRef.current) rowsRef.current.scrollTop = startScrollTop - (ev.clientY - startClientY);
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        if (!moved && !pinchingRef.current) {
+          if (tapId) setSelection({ startSec: 0, endSec: 0, trackIds: [trackId], clipIds: [tapId] });
+          else setSelection(EMPTY_SELECTION);
+        }
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      return;
     } else if (e.button === 0) {
       // LMB only SELECTS (never moves — move is the middle button). Shift/Ctrl-click
       // toggles a block in the multi-selection; a plain click selects the block under
@@ -1490,6 +1582,9 @@ export default function Editor({
             </button>
             <span className="hint">{bpm} BPM</span>
           </div>
+          {/* Beat-snap + playback-speed controls are desktop-only. */}
+          {!IS_MOBILE && (
+          <>
           <span className="sep" />
           <label className="dev checkbox" title="Snap ao BPM: gruda cursor e clipes nas batidas">
             <input type="checkbox" checked={bpmSnap} onChange={(e) => setBpmSnap(e.target.checked)} />
@@ -1550,6 +1645,8 @@ export default function Editor({
               </span>
             )}
           </label>
+          </>
+          )}
         </div>
 
         <div className="tp-group tp-right">
@@ -1638,7 +1735,7 @@ export default function Editor({
           sidebarWidth={sidebarWidth}
           onPointerDown={onRulerPointerDown}
         />
-        {bpmSnap && (
+        {!IS_MOBILE && bpmSnap && (
           <BeatStrip
             bpm={bpm}
             offsetSec={bpmOffsetSec}
@@ -1648,7 +1745,7 @@ export default function Editor({
             sidebarWidth={sidebarWidth}
           />
         )}
-        {chords.length > 0 && (
+        {!IS_MOBILE && chords.length > 0 && (
           <ChordStrip
             chords={chords}
             pxPerSec={pxPerSec}
@@ -1695,7 +1792,7 @@ export default function Editor({
         </div>
         <div ref={playheadRef} className="editor-playhead" />
       </div>
-        {toolsOpen && (
+        {!IS_MOBILE && toolsOpen && (
           <ToolsPanel
             items={tools}
             sources={[
@@ -1713,16 +1810,20 @@ export default function Editor({
         )}
       </div>
 
-      <Overview
-        project={project}
-        scrollSec={scrollSec}
-        viewportSec={viewportSec}
-        viewportWidth={viewportWidth}
-        onScroll={setScrollSec}
-        onZoom={setPxPerSec}
-      />
+      {/* Overview minimap replaces the horizontal scrollbar — desktop only; on
+          mobile the timeline is panned/zoomed by touch gestures instead. */}
+      {!IS_MOBILE && (
+        <Overview
+          project={project}
+          scrollSec={scrollSec}
+          viewportSec={viewportSec}
+          viewportWidth={viewportWidth}
+          onScroll={setScrollSec}
+          onZoom={setPxPerSec}
+        />
+      )}
 
-      {stats && <StatsPanel stats={stats} onClose={() => setStats(null)} />}
+      {!IS_MOBILE && stats && <StatsPanel stats={stats} onClose={() => setStats(null)} />}
 
       {midiProgress && (
         <div className="midi-overlay">
