@@ -19,6 +19,7 @@ import Mixer from '@/components/Mixer';
 import { runJob, splitSavedSource } from '@/lib/pipeline';
 import { store } from '@/lib/store';
 import { emptyProject, fromStemSet, type EditorProject } from '@/lib/editor/model';
+import { keepScreenAwake } from '@/lib/platform/wakeLock';
 import { IS_MOBILE } from '@/lib/env';
 import { DEFAULT_BACKEND_URL } from '@/lib/config';
 
@@ -26,11 +27,15 @@ type View = 'import' | 'library' | 'options';
 const TITLES: Record<View, string> = { import: 'Import', library: 'Library', options: 'Options' };
 
 interface Loaded {
-  project: EditorProject;
   title: string;
   /** The raw 6-stem set, present for fresh splits and saved projects (drives the
    *  mobile quick-mixer). Absent for arrangements, which need the full editor. */
   set?: StemSet;
+  /** Prebuilt editor project — present for arrangements (which carry no stem set).
+   *  For set-based loads the project is derived from `set`: eagerly on desktop,
+   *  lazily on mobile (see loadIntoEditor / toggleMobileEdit) so the quick-mixer
+   *  path doesn't hold a second full copy of the audio in memory. */
+  project?: EditorProject;
 }
 
 export default function Home() {
@@ -95,14 +100,26 @@ export default function Home() {
   }, []);
 
   const loadIntoEditor = useCallback((loaded: Loaded) => {
-    let project = loaded.project;
-    if (IS_MOBILE) {
-      // Mobile has no MIDI features — drop any MIDI tracks so a loaded project
-      // never opens them (audio tracks only).
-      const audioOnly = project.tracks.filter((t) => !t.midi);
-      if (audioOnly.length !== project.tracks.length) {
-        project = { ...project, tracks: audioOnly };
+    let project: EditorProject;
+    if (loaded.project) {
+      // Arrangement: comes with a prebuilt project (no stem set).
+      project = loaded.project;
+      if (IS_MOBILE) {
+        // Mobile has no MIDI features — drop any MIDI tracks so a loaded project
+        // never opens them (audio tracks only).
+        const audioOnly = project.tracks.filter((t) => !t.midi);
+        if (audioOnly.length !== project.tracks.length) {
+          project = { ...project, tracks: audioOnly };
+        }
       }
+    } else if (loaded.set && !IS_MOBILE) {
+      // Desktop / web: no quick-mixer, so build the editor project up front.
+      project = fromStemSet(loaded.set);
+    } else {
+      // Mobile split/project: defer building the per-stem AudioBuffers until the
+      // user opens the editor (toggleMobileEdit) — the mixer runs off the stem
+      // set, so building them now would hold a second full copy of the audio.
+      project = emptyProject();
     }
     setProject(project);
     setTitle(loaded.title);
@@ -114,6 +131,17 @@ export default function Home() {
     setModal(null);
     setReloadKey((k) => k + 1);
   }, []);
+
+  // Mobile: switch between the quick faders mixer and the full editor. The editor
+  // project is built lazily on first entry (see loadIntoEditor) to keep the mixer
+  // path light on memory.
+  const toggleMobileEdit = useCallback(() => {
+    const entering = !mobileEdit;
+    if (entering && stemSet && project.tracks.length === 0) {
+      setProject(fromStemSet(stemSet));
+    }
+    setMobileEdit(entering);
+  }, [mobileEdit, stemSet, project]);
 
   // Run a project-loading task inside the active modal; on success it replaces
   // the editor's project (confirming first if there are unsaved edits).
@@ -127,6 +155,9 @@ export default function Home() {
       }
       cancelledRef.current = false;
       setJob({ running: true, progress: { phase: 'extracting', percent: 0 } });
+      // Hold a screen wake lock for the whole job: on mobile an auto screen-lock
+      // suspends the WebView and kills the in-flight cloud separation request.
+      const releaseWakeLock = keepScreenAwake();
       try {
         const loaded = await fn();
         if (cancelledRef.current) return;
@@ -134,6 +165,8 @@ export default function Home() {
       } catch (err) {
         if (cancelledRef.current) return;
         setJob({ running: false, error: err instanceof Error ? err.message : String(err) });
+      } finally {
+        releaseWakeLock();
       }
     },
     [loadIntoEditor],
@@ -143,7 +176,7 @@ export default function Home() {
     (config: JobConfig, file: File | null) =>
       runInModal(async () => {
         const { set, title: t } = await runJob(config, file, onProgress);
-        return { project: fromStemSet(set), title: t, set };
+        return { title: t, set };
       }),
     [runInModal, onProgress],
   );
@@ -152,7 +185,7 @@ export default function Home() {
     (source: SourceMeta, useCloud = false) =>
       runInModal(async () => {
         const set = await splitSavedSource(source, backendUrl, onProgress, useCloud);
-        return { project: fromStemSet(set), title: source.title, set };
+        return { title: source.title, set };
       }),
     [runInModal, backendUrl, onProgress],
   );
@@ -161,7 +194,7 @@ export default function Home() {
     (p: ProjectMeta) =>
       runInModal(async () => {
         const set = await store.loadProject(p, onProgress);
-        return { project: fromStemSet(set), title: p.title, set };
+        return { title: p.title, set };
       }),
     [runInModal, onProgress],
   );
@@ -228,7 +261,7 @@ export default function Home() {
 
       {/* Mobile-only toggle between the quick mixer and the full editor. */}
       {IS_MOBILE && stemSet && (
-        <button className="mobile-view-toggle" onClick={() => setMobileEdit((e) => !e)}>
+        <button className="mobile-view-toggle" onClick={toggleMobileEdit}>
           {mobileEdit ? '◂ Mixer' : 'Editor ▸'}
         </button>
       )}

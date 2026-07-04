@@ -21,7 +21,7 @@ import {
   type StemSet,
 } from '@prismaxim/shared';
 import { decodeToModelAudio, stemSetFromChannels } from '../audio';
-import { encodeWav } from '../mixer/export';
+import { encodeWav, encodeWavFromChannels } from '../mixer/export';
 import {
   deserializeManifest,
   serialize,
@@ -232,7 +232,10 @@ export const browserStore: LibraryStore = {
         percent: Math.round(((i + 1) / set.stems.length) * 100),
         message: `Saving ${stem.name}…`,
       });
-      const wav = encodeWav(makeAudioBuffer(stem.channels, set.sampleRate));
+      // Encode straight from the stem's Float32 channels — building an
+      // intermediate AudioBuffer here would hold a second full-length copy of
+      // the stem in memory during the save (costly on low-RAM mobile devices).
+      const wav = encodeWavFromChannels(stem.channels, set.sampleRate);
       await writeOpfs(`projects/${id}/${stem.name}.wav`, await wav.arrayBuffer());
     }
     const project: ProjectMeta = {

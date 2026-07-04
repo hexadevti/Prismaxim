@@ -54,6 +54,8 @@ export default function StartPanel({ onStart, backendUrl }: StartPanelProps) {
   // default — on-device separation is an experimental fallback (see Options).
   const [hasCloud, setHasCloud] = useState(false);
   const [useCloud, setUseCloud] = useState(IS_MOBILE);
+  // Low-RAM mobile devices can run out of memory decoding a long 6-stem track.
+  const [lowMemory, setLowMemory] = useState(false);
 
   // Load link history on mount (client-only).
   useEffect(() => {
@@ -65,6 +67,12 @@ export default function StartPanel({ onStart, backendUrl }: StartPanelProps) {
     // never exposes navigator.gpu, so don't surface a misleading message there.
     if (!IS_DESKTOP && !IS_MOBILE) setHasWebGPU(typeof navigator !== 'undefined' && !!navigator.gpu);
     setHasCloud(cloudConfigured());
+    if (IS_MOBILE && typeof navigator !== 'undefined') {
+      // navigator.deviceMemory (Android/Chromium) is approximate RAM in GB, capped
+      // at 8. ≤4 GB devices risk an out-of-memory crash on long tracks.
+      const gb = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+      if (typeof gb === 'number' && gb <= 4) setLowMemory(true);
+    }
   }, []);
 
   // Cloud separation currently applies to uploaded files.
@@ -268,6 +276,13 @@ export default function StartPanel({ onStart, backendUrl }: StartPanelProps) {
             : hasWebGPU
               ? '✓ WebGPU ready — fast in-browser separation (Chrome/Edge).'
               : '⚠ WebGPU unavailable — separation falls back to WASM (much slower). Use Chrome/Edge.'}
+        </p>
+      )}
+
+      {IS_MOBILE && lowMemory && (
+        <p className="warn" style={{ marginTop: 0, marginBottom: 12 }}>
+          ⚠ This device is low on memory — long tracks (over ~4 min) may close the app
+          while importing. Try shorter clips for the most reliable results.
         </p>
       )}
 
