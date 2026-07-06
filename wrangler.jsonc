@@ -1,0 +1,23 @@
+{
+  // Cloudflare Workers "Static Assets" config for the 100% static web build.
+  //
+  // `wrangler deploy` runs `build.command` first (producing web/out via Next's
+  // static export), then uploads web/out as an assets-only Worker (no server
+  // code). Because the build is defined here, the deploy is self-contained and
+  // does NOT depend on the dashboard "Build command" being set correctly — the
+  // dashboard command can be left at its default (or blanked to skip a
+  // redundant build). web/out/_headers carries the COOP/COEP cross-origin
+  // isolation headers onnxruntime-web (SharedArrayBuffer) + the AudioWorklet
+  // need. The ~26 MB ORT/WebGPU wasm is loaded from a CDN at runtime and
+  // dropped from the upload (see web/public/.assetsignore + lib/config.ts).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // MUST match the Worker name you created in the dashboard. Rename here if yours differs.
+  "name": "prismaxim",
+  "compatibility_date": "2026-06-01",
+  "build": {
+    "command": "npm run build:static -w web"
+  },
+  "assets": {
+    "directory": "./web/out"
+  }
+}
