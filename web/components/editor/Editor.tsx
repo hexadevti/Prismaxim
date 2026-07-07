@@ -77,6 +77,9 @@ import {
   renderTrack,
 } from '@/lib/editor/export';
 import { transcribeAudioBuffer } from '@/lib/editor/transcribe';
+import { transcribeLyrics, toLrc, toSrt, type LyricSegment } from '@/lib/editor/lyrics';
+import { cloudConfigured, getCloudToken, getCloudUrl } from '@/lib/cloudConfig';
+import { encodeWavFromChannels } from '@/lib/mixer/export';
 import { notesToSmf } from '@/lib/editor/midi';
 import { cleanNotes, toMonophonic } from '@/lib/editor/midiClean';
 import { getInstrument } from '@/lib/editor/instruments';
@@ -86,6 +89,8 @@ import StatsPanel from './StatsPanel';
 import Toolbar from './Toolbar';
 import RecordBar from './RecordBar';
 import ChordStrip from './ChordStrip';
+import LyricLane from './LyricLane';
+import LyricCaptions from './LyricCaptions';
 import BeatStrip from './BeatStrip';
 import Ruler from './Ruler';
 import TimelineTrack, {
@@ -225,7 +230,14 @@ export default function Editor({
   const [pitchBusy, setPitchBusy] = useState(false);
   const [stretchProg, setStretchProg] = useState<{ done: number; total: number } | null>(null);
   const [chords, setChords] = useState<ChordSegment[]>([]);
-  const [analyzing, setAnalyzing] = useState<null | 'tempo' | 'chords' | 'midi' | 'stats'>(null);
+  const [lyrics, setLyrics] = useState<LyricSegment[]>([]);
+  const [lyricsProgress, setLyricsProgress] = useState<number | null>(null);
+  const [captionsOn, setCaptionsOn] = useState(false);
+  // Use the cloud GPU endpoint for the in-editor "separate selection" pass.
+  const [sepUseCloud, setSepUseCloud] = useState(false);
+  const [analyzing, setAnalyzing] = useState<null | 'tempo' | 'chords' | 'midi' | 'stats' | 'lyrics'>(
+    null,
+  );
   const [stats, setStats] = useState<MusicStats | null>(null);
   const [midiProgress, setMidiProgress] = useState<{ name: string; percent: number } | null>(null);
   const [cleanTrack, setCleanTrack] = useState<{ id: string; name: string } | null>(null);
@@ -1482,6 +1494,42 @@ export default function Editor({
     }
   };
 
+  /* ---------- vocals → lyrics (Whisper ASR) ---------- */
+  const doLyrics = async () => {
+    const p = projectRef.current;
+    // Best on the isolated vocals stem; fall back to any audio track (e.g. an
+    // unseparated import) — results on a full mix are noticeably worse.
+    const vocals = p.tracks.find((t) => t.stem === 'vocals' && t.clips.length > 0);
+    const track = vocals ?? p.tracks.find((t) => t.clips.length > 0);
+    if (!track) {
+      window.alert('No audio track to transcribe. Separate the vocals stem first.');
+      return;
+    }
+    setAnalyzing('lyrics');
+    setLyricsProgress(0);
+    try {
+      const buf = await renderTrack(p, track.id);
+      if (!buf) return;
+      const segs = await transcribeLyrics(buf, (pr) => setLyricsProgress(Math.round(pr * 100)));
+      setLyrics(segs);
+      if (segs.length === 0) window.alert('No lyrics detected in that track.');
+      else setCaptionsOn(true); // show captions immediately so the result is visible
+
+    } catch (e) {
+      window.alert('Lyrics transcription failed: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setAnalyzing(null);
+      setLyricsProgress(null);
+    }
+  };
+
+  const exportLyrics = (fmt: 'lrc' | 'srt') => {
+    if (lyrics.length === 0) return;
+    const text = fmt === 'lrc' ? toLrc(lyrics) : toSrt(lyrics);
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    downloadBlob(blob, `${safeName(title)}.${fmt}`);
+  };
+
   /* ---------- audio → MIDI ---------- */
   const doTranscribe = (trackId: string) => {
     const track = projectRef.current.tracks.find((t) => t.id === trackId);
@@ -1588,18 +1636,34 @@ export default function Editor({
         window.alert('The selected region has no audible audio to separate.');
         return;
       }
-      // Lazy-load the browser separation worker (keeps onnxruntime-web out of the
-      // editor's initial chunk). Separation runs client-side, in this tab.
-      const { separateInBrowser } = await import('@/lib/engines/separation.web');
-      const set = await separateInBrowser(
-        audio,
-        (p) =>
-          setSepProgress({
-            percent: p.percent,
-            label: p.phase === 'loading-model' ? 'Loading model…' : 'Separating…',
-          }),
-        picks,
-      );
+      // Cloud GPU (opt-in) or in-browser onnxruntime-web. The cloud service
+      // decodes an encoded body, so send the rendered region as WAV bytes.
+      const useCloud = sepUseCloud && cloudConfigured();
+      let set;
+      if (useCloud) {
+        const wavBytes = await encodeWavFromChannels(audio.channels, audio.sampleRate).arrayBuffer();
+        const { separateOnCloud } = await import('@/lib/engines/cloud');
+        set = await separateOnCloud(
+          getCloudUrl(),
+          getCloudToken(),
+          wavBytes,
+          (p) => setSepProgress({ percent: p.percent, label: p.message ?? 'Separating on cloud…' }),
+          picks,
+        );
+      } else {
+        // Lazy-load the browser separation worker (keeps onnxruntime-web out of the
+        // editor's initial chunk). Separation runs client-side, in this tab.
+        const { separateInBrowser } = await import('@/lib/engines/separation.web');
+        set = await separateInBrowser(
+          audio,
+          (p) =>
+            setSepProgress({
+              percent: p.percent,
+              label: p.phase === 'loading-model' ? 'Loading model…' : 'Separating…',
+            }),
+          picks,
+        );
+      }
       const dur = dlg.endSec - dlg.startSec;
       const next = cloneProject(projectRef.current);
       const affected = new Set<string>();
@@ -1643,7 +1707,7 @@ export default function Editor({
     } finally {
       setSepProgress(null);
     }
-  }, [stemDialog, stemSel, commit]);
+  }, [stemDialog, stemSel, commit, sepUseCloud]);
 
   const exportMidi = (track: EditorTrack) => {
     if (!track.midi?.length) return;
@@ -1929,6 +1993,7 @@ export default function Editor({
       onDetectTempo={doDetectTempo}
       onDetectChords={doDetectChords}
       onStats={doStats}
+      onLyrics={doLyrics}
       analyzing={analyzing}
       chordCount={chords.length}
       toolsOpen={toolsOpen}
@@ -2031,6 +2096,35 @@ export default function Editor({
             sidebarWidth={sidebarWidth}
           />
         )}
+        {!IS_MOBILE && lyrics.length > 0 && (
+          <LyricLane
+            lyrics={lyrics}
+            onChange={setLyrics}
+            pxPerSec={pxPerSec}
+            scrollSec={scrollSec}
+            viewportWidth={viewportWidth}
+            sidebarWidth={sidebarWidth}
+            getCurrentSec={playheadSec}
+            captionsOn={captionsOn}
+            onToggleCaptions={() => setCaptionsOn((v) => !v)}
+            onExport={exportLyrics}
+            onDelete={() => {
+              if (!window.confirm('Delete the lyrics track? This discards the transcribed lines.'))
+                return;
+              setLyrics([]);
+              setCaptionsOn(false);
+            }}
+            audioSelected={
+              selection.clipIds.length > 0 ||
+              selectedTrackId !== null ||
+              selection.endSec - selection.startSec > 1e-6
+            }
+            onSelect={() => {
+              setSelection(EMPTY_SELECTION);
+              setSelectedTrackId(null);
+            }}
+          />
+        )}
         <div className="lanes" ref={rowsRef}>
           {project.tracks.map((t) => (
             <TimelineTrack
@@ -2120,6 +2214,30 @@ export default function Editor({
             </p>
           </div>
         </div>
+      )}
+
+      {lyricsProgress !== null && (
+        <div className="midi-overlay">
+          <div className="midi-progress-card">
+            <div className="phase-label">
+              <strong className="mp-title">
+                <Music4 size={16} /> Transcribing vocals to lyrics…
+              </strong>
+              <span className="engine">{lyricsProgress}%</span>
+            </div>
+            <div className="bar">
+              <span style={{ width: `${Math.max(4, lyricsProgress)}%` }} />
+            </div>
+            <p className="hint" style={{ marginTop: 8 }}>
+              {lyricsProgress < 90 ? 'Loading the Whisper model…' : 'Recognizing speech…'} Keep this
+              tab open.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {lyrics.length > 0 && (
+        <LyricCaptions lyrics={lyrics} getCurrentSec={playheadSec} visible={captionsOn} />
       )}
 
       {sepProgress && (
@@ -2344,19 +2462,34 @@ export default function Editor({
                   Splits {fmtTime(stemDialog.startSec)}–{fmtTime(stemDialog.endSec)} of the selected
                   track{stemDialog.trackIds.length > 1 ? 's' : ''} into the stems below and drops each
                   one back at the same spot. A stem reuses its matching track when one exists;
-                  otherwise a new track is created. Runs in your browser.
+                  otherwise a new track is created.{' '}
+                  {sepUseCloud && cloudConfigured() ? 'Runs on the cloud GPU.' : 'Runs in your browser.'}
                 </p>
                 <div className="field">
                   <label>Stems to create</label>
                   <StemPicker value={stemSel} onChange={setStemSel} />
                 </div>
+                {cloudConfigured() && (
+                  <label
+                    className="hint"
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', marginTop: 8 }}
+                    title="Separate on the cloud GPU endpoint instead of in this browser tab"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={sepUseCloud}
+                      onChange={(e) => setSepUseCloud(e.target.checked)}
+                    />
+                    ⚡ Cloud (fast)
+                  </label>
+                )}
                 <div className="row" style={{ marginTop: 12 }}>
                   <button
                     className="btn"
                     onClick={runSeparateSelection}
                     disabled={stemSel.length === 0}
                   >
-                    <Layers size={15} /> Separate
+                    <Layers size={15} /> {sepUseCloud && cloudConfigured() ? 'Separate ⚡' : 'Separate'}
                   </button>
                   <button className="btn ghost" onClick={() => setStemDialog(null)}>
                     Cancel

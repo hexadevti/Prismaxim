@@ -1224,6 +1224,194 @@ input[type='checkbox']:disabled {
   display: block;
 }
 
+/* Editable lyrics/caption lane: draggable, resizable, deletable segments */
+.lyric-lane-row {
+  display: flex;
+  height: 46px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.lyric-lane-content {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+/* Left header of the lyrics track: title, line count, and controls. */
+.lyric-lane-header {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  overflow: hidden;
+}
+.lyric-lane-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.lyric-lane-count {
+  font-size: 10px;
+  color: var(--muted);
+}
+.lyric-lane-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.lyric-lane-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 1;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.lyric-lane-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--panel-3);
+}
+.lyric-lane-btn.active {
+  color: #f472b6;
+  border-color: rgba(236, 72, 153, 0.6);
+}
+.lyric-lane-btn.danger:hover {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.6);
+  background: transparent;
+}
+.lyric-block {
+  position: absolute;
+  top: 9px;
+  height: 28px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 15px 0 7px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.16);
+  color: #c7ccd6;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: grab;
+  user-select: none;
+}
+.lyric-block:active {
+  cursor: grabbing;
+}
+.lyric-block-active {
+  background: rgba(236, 72, 153, 0.28);
+  border-color: rgba(236, 72, 153, 0.85);
+  color: #fff;
+}
+.lyric-block-selected {
+  outline: 2px solid var(--accent-2);
+  outline-offset: -1px;
+}
+.lyric-lane-content:focus {
+  outline: none;
+}
+/* Right-click menu for lyric blocks (copy / paste / split / delete) */
+.lyric-lane-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 168px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.lyric-lane-menu button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 8px;
+  font-size: 12px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.lyric-lane-menu button:hover:not(:disabled) {
+  background: var(--panel-3);
+}
+.lyric-lane-menu button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+.lyric-lane-menu kbd {
+  font-size: 10px;
+  color: var(--muted);
+}
+.lyric-block-edge {
+  position: absolute;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+}
+.lyric-block-edge.l {
+  left: 0;
+}
+.lyric-block-edge.r {
+  right: 0;
+}
+.lyric-block-del {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 14px;
+  height: 14px;
+  line-height: 12px;
+  text-align: center;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+}
+.lyric-block-del:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.35);
+}
+.lyric-block-input {
+  position: absolute;
+  top: 9px;
+  height: 28px;
+  box-sizing: border-box;
+  font-size: 11px;
+  padding: 0 6px;
+  border: 1px solid rgba(236, 72, 153, 0.85);
+  border-radius: 4px;
+  background: #0b0d12;
+  color: #fff;
+  z-index: 5;
+}
+
 /* BPM beat-count strip (shown when snap is on) */
 .beat-strip-row {
   display: flex;

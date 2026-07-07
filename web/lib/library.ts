@@ -5,6 +5,7 @@
 
 import {
   STEM_NAMES,
+  type AnalysisMeta,
   type ArrangementSummary,
   type ProgressUpdate,
   type ProjectMeta,
@@ -110,6 +111,7 @@ export async function saveBrowserProject(
   set: StemSet,
   title: string,
   onProgress?: (p: ProgressUpdate) => void,
+  analysis?: AnalysisMeta,
 ): Promise<ProjectMeta> {
   const shellRes = await fetch(`${baseUrl}/library/projects`, {
     method: 'POST',
@@ -121,6 +123,7 @@ export async function saveBrowserProject(
       numChannels: set.numChannels,
       lengthSamples: set.length,
       stems: set.stems.map((s) => s.name),
+      analysis,
     }),
   });
   if (!shellRes.ok) throw new Error(`Failed to create project (${shellRes.status})`);

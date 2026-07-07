@@ -84,6 +84,30 @@ export interface ExtractInfo extends VideoStats {
 
 /* ----- Library (persisted on the backend disk) ----- */
 
+/**
+ * Musical analysis of a track, computed once from the separated stems and
+ * persisted in the library so the app can display and search on it without
+ * re-analysing. Key/scale/tempo/loudness come from the offline DSP analysers;
+ * `tags` (genre/mood/instrument) are added by the ML auto-tagger.
+ */
+export interface AnalysisMeta {
+  /** Tonic pitch class, e.g. 'C', 'F#', or '—' when undetectable. */
+  key: string;
+  scale: 'Major' | 'Minor';
+  /** Estimated tempo in BPM. */
+  bpm: number;
+  /** 0..100 — how steady the tempo is. */
+  tempoStability: number;
+  /** Approximate integrated loudness (rough LUFS proxy, no gating). */
+  lufs: number;
+  /** peakDb - rmsDb, a crude dynamic-range figure in dB. */
+  dynamicRange: number;
+  /** Peak level in dBFS. */
+  peakDb: number;
+  /** Auto/ML tags (genre/mood/instrument); populated by the auto-tagger. */
+  tags?: string[];
+}
+
 /** A saved source audio (imported from YouTube or uploaded). */
 export interface SourceMeta extends VideoStats {
   id: string;
@@ -121,4 +145,6 @@ export interface ProjectMeta {
   engine: string;
   /** How long the stem separation took, in ms. */
   separationMs?: number;
+  /** Musical analysis (key/tempo/loudness/tags), computed once at save time. */
+  analysis?: AnalysisMeta;
 }

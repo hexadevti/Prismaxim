@@ -6,6 +6,7 @@ import {
   Copy,
   ListPlus,
   Maximize2,
+  Mic,
   Music2,
   PanelRight,
   Redo2,
@@ -43,7 +44,9 @@ export interface ToolbarProps {
   onDetectTempo: () => void;
   onDetectChords: () => void;
   onStats: () => void;
-  analyzing: null | 'tempo' | 'chords' | 'midi' | 'stats';
+  /** Transcribe the vocals stem to time-stamped lyrics (creates the lyrics track). */
+  onLyrics: () => void;
+  analyzing: null | 'tempo' | 'chords' | 'midi' | 'stats' | 'lyrics';
   chordCount: number;
   // tools sidebar
   onToggleTools: () => void;
@@ -118,6 +121,14 @@ export default function Toolbar(p: ToolbarProps) {
           </button>
           <button className="btn ghost" onClick={p.onStats} disabled={p.analyzing !== null}>
             {p.analyzing === 'stats' ? 'Analyzing…' : <><BarChart3 size={14} /> Stats</>}
+          </button>
+          <button
+            className="btn ghost"
+            onClick={p.onLyrics}
+            disabled={p.analyzing !== null}
+            title="Transcribe the vocals stem into a time-stamped lyrics track (karaoke)"
+          >
+            {p.analyzing === 'lyrics' ? 'Transcribing…' : <><Mic size={14} /> Lyrics</>}
           </button>
           {p.chordCount > 0 && <span className="hint">{p.chordCount} chords</span>}
         </div>

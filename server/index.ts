@@ -22,6 +22,7 @@ import {
   separateMixture,
   splitStemSelection,
   STEM_NAMES,
+  type AnalysisMeta,
   type SelectableStem,
   type SeparateEvent,
   type SeparationSession,
@@ -275,6 +276,7 @@ async function main() {
       numChannels: number;
       lengthSamples: number;
       stems: SelectableStem[];
+      analysis?: AnalysisMeta;
     }>(req.body);
     if (!body?.title) return reply.code(400).send('Missing project meta');
     const project = await createProjectShell({
@@ -284,6 +286,7 @@ async function main() {
       numChannels: body.numChannels,
       lengthSamples: body.lengthSamples,
       stems: body.stems ?? [...STEM_NAMES],
+      analysis: body.analysis,
     });
     return reply.send(project);
   });
