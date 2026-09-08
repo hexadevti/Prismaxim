@@ -304,6 +304,182 @@ a,
   overflow: hidden; /* the editor fills this and scrolls its lanes internally */
 }
 
+/* ---------- open-song tabs ---------- */
+/* Sits between the sidebar and the editor, one tab per open song. Only the
+   active tab's editor is mounted — the rest are project data held by the shell. */
+.tabbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.tabbar-scroll {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Only as wide as the tabs, so ＋ stays beside them; shrinks and scrolls once
+     there are more tabs than fit. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 2px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  max-width: 220px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--edge);
+}
+
+.tab.active {
+  background: var(--panel-2);
+  border-color: var(--accent-2);
+}
+
+.tab-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px 4px 7px 10px;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tab.active .tab-label {
+  color: var(--text);
+}
+
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Unsaved-changes marker. Always laid out so titles don't shift when it appears. */
+.tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: transparent;
+}
+
+.tab-dot.dirty {
+  background: var(--warn);
+}
+
+.tab-close,
+.tab-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  color: var(--faint);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.tab-close {
+  padding: 6px 8px 6px 4px;
+}
+
+.tab-close:hover,
+.tab-new:hover {
+  color: var(--text);
+  background: var(--panel-3);
+}
+
+.tab-new {
+  flex-shrink: 0;
+  padding: 8px;
+  border: 1px dashed var(--border-strong);
+}
+
+.tab-new-wrap {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+}
+
+.tab-merge {
+  position: relative;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.tab-merge-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  font-size: 12.5px;
+}
+
+.tab-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 30;
+  min-width: 200px;
+  max-width: 320px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-2);
+}
+
+.tab-merge-menu {
+  right: 0;
+}
+
+.tab-new-menu {
+  left: 0;
+  min-width: 190px;
+}
+
+.tab-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-menu button:hover {
+  background: var(--panel-3);
+}
+
+.tab-menu button svg {
+  flex-shrink: 0;
+  color: var(--faint);
+}
+
 /* The editor fills the main area; only its lane list scrolls (below). */
 .panel.editor {
   flex: 1;
@@ -428,7 +604,8 @@ a,
 }
 
 input[type='text'],
-input[type='url'] {
+input[type='url'],
+input[type='search'] {
   width: 100%;
   padding: 11px 12px;
   background: var(--panel-2);
@@ -440,9 +617,19 @@ input[type='url'] {
 }
 
 input[type='text']:focus,
-input[type='url']:focus {
+input[type='url']:focus,
+input[type='search']:focus {
   border-color: var(--accent-2);
   box-shadow: var(--ring);
+}
+
+/* Chromium draws its own light-theme clear button/decoration on search
+   inputs — drop it so the field matches the other text inputs. */
+input[type='search']::-webkit-search-decoration,
+input[type='search']::-webkit-search-cancel-button,
+input[type='search']::-webkit-search-results-button {
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .seg {
@@ -767,6 +954,145 @@ input[type='url']:focus {
   flex: 1;
 }
 
+/* YouTube search results (StartPanel) */
+.yt-results {
+  margin-top: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.yt-result {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.yt-result.picked {
+  border-color: var(--accent-2);
+  background: var(--panel-2);
+  box-shadow: var(--ring);
+}
+
+.yt-result-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.yt-result-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 1.35;
+}
+
+.yt-result-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* The chosen search hit: a link card out to the system browser, not an embed
+   (see the YouTubePreview comment for why there is no inline player). */
+.yt-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--accent-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.yt-preview:hover {
+  background: var(--panel-3);
+}
+
+.yt-preview-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 160px;
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #000;
+}
+
+.yt-preview-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Play glyph drawn in CSS — a triangle on a translucent disc. */
+.yt-preview-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(10, 12, 17, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.yt-preview-play::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0;
+  height: 0;
+  transform: translateX(2px);
+  border-left: 12px solid #fff;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+}
+
+.yt-preview-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.yt-preview-title {
+  font-size: 13.5px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.yt-preview-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.yt-preview-link {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.yt-preview:hover .yt-preview-link {
+  text-decoration: underline;
+}
+
+.yt-result-mark {
+  flex-shrink: 0;
+  width: 16px;
+  color: var(--accent-2);
+  font-weight: 700;
+}
+
 .lib-thumb {
   width: 72px;
   height: 40px;
@@ -800,6 +1126,44 @@ input[type='url']:focus {
 
 .lib-actions .btn.ghost {
   padding: 8px 11px;
+}
+
+/* project file */
+.proj-tabs {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.proj-tabs li {
+  padding: 5px 8px;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proj-tabs li + li {
+  border-top: 1px solid var(--border);
+}
+
+/* Wraps rather than scrolls: on a narrow window the four actions stack. */
+.proj-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.proj-actions .btn {
+  padding: 9px 14px;
+  font-size: 13px;
 }
 
 /* mixer */
@@ -1222,6 +1586,194 @@ input[type='checkbox']:disabled {
 
 .chord-strip-canvas {
   display: block;
+}
+
+/* Editable lyrics/caption lane: draggable, resizable, deletable segments */
+.lyric-lane-row {
+  display: flex;
+  height: 46px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.lyric-lane-content {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+/* Left header of the lyrics track: title, line count, and controls. */
+.lyric-lane-header {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  overflow: hidden;
+}
+.lyric-lane-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.lyric-lane-count {
+  font-size: 10px;
+  color: var(--muted);
+}
+.lyric-lane-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.lyric-lane-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 1;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.lyric-lane-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--panel-3);
+}
+.lyric-lane-btn.active {
+  color: #f472b6;
+  border-color: rgba(236, 72, 153, 0.6);
+}
+.lyric-lane-btn.danger:hover {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.6);
+  background: transparent;
+}
+.lyric-block {
+  position: absolute;
+  top: 9px;
+  height: 28px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 15px 0 7px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.16);
+  color: #c7ccd6;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: grab;
+  user-select: none;
+}
+.lyric-block:active {
+  cursor: grabbing;
+}
+.lyric-block-active {
+  background: rgba(236, 72, 153, 0.28);
+  border-color: rgba(236, 72, 153, 0.85);
+  color: #fff;
+}
+.lyric-block-selected {
+  outline: 2px solid var(--accent-2);
+  outline-offset: -1px;
+}
+.lyric-lane-content:focus {
+  outline: none;
+}
+/* Right-click menu for lyric blocks (copy / paste / split / delete) */
+.lyric-lane-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 168px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.lyric-lane-menu button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 8px;
+  font-size: 12px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.lyric-lane-menu button:hover:not(:disabled) {
+  background: var(--panel-3);
+}
+.lyric-lane-menu button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+.lyric-lane-menu kbd {
+  font-size: 10px;
+  color: var(--muted);
+}
+.lyric-block-edge {
+  position: absolute;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+}
+.lyric-block-edge.l {
+  left: 0;
+}
+.lyric-block-edge.r {
+  right: 0;
+}
+.lyric-block-del {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 14px;
+  height: 14px;
+  line-height: 12px;
+  text-align: center;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+}
+.lyric-block-del:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.35);
+}
+.lyric-block-input {
+  position: absolute;
+  top: 9px;
+  height: 28px;
+  box-sizing: border-box;
+  font-size: 11px;
+  padding: 0 6px;
+  border: 1px solid rgba(236, 72, 153, 0.85);
+  border-radius: 4px;
+  background: #0b0d12;
+  color: #fff;
+  z-index: 5;
 }
 
 /* BPM beat-count strip (shown when snap is on) */

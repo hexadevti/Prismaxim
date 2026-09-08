@@ -38,12 +38,26 @@ export interface ArrangementManifest {
   tracks: PersistTrack[];
 }
 
-export function serialize(
+/**
+ * Audio interned while serializing. A pool shared by several projects (a saved
+ * workspace) writes a buffer they have in common exactly once — which is what
+ * makes saving a whole session cost no more than saving its songs separately.
+ */
+export interface BufferPool {
+  ids: Map<AudioBuffer, string>;
+  list: { id: string; buffer: AudioBuffer }[];
+}
+
+export function createBufferPool(): BufferPool {
+  return { ids: new Map(), list: [] };
+}
+
+/** Serialize one project's tracks into `pool`, reporting the buffers it uses. */
+export function serializeTracks(
   project: EditorProject,
-  title: string,
-): { manifest: ArrangementManifest; buffers: { id: string; buffer: AudioBuffer }[] } {
-  const map = new Map<AudioBuffer, string>();
-  const buffers: { id: string; buffer: AudioBuffer }[] = [];
+  pool: BufferPool,
+): { tracks: PersistTrack[]; bufferIds: string[] } {
+  const used = new Set<string>();
   const tracks: PersistTrack[] = project.tracks.map((t) => ({
     id: t.id,
     name: t.name,
@@ -55,12 +69,13 @@ export function serialize(
     midi: t.midi,
     instrument: t.instrument,
     clips: t.clips.map((c) => {
-      let id = map.get(c.buffer);
+      let id = pool.ids.get(c.buffer);
       if (!id) {
-        id = `b${buffers.length}`;
-        map.set(c.buffer, id);
-        buffers.push({ id, buffer: c.buffer });
+        id = `b${pool.list.length}`;
+        pool.ids.set(c.buffer, id);
+        pool.list.push({ id, buffer: c.buffer });
       }
+      used.add(id);
       return {
         bufferId: id,
         startSec: c.startSec,
@@ -71,16 +86,25 @@ export function serialize(
       };
     }),
   }));
+  return { tracks, bufferIds: [...used] };
+}
+
+export function serialize(
+  project: EditorProject,
+  title: string,
+): { manifest: ArrangementManifest; buffers: { id: string; buffer: AudioBuffer }[] } {
+  const pool = createBufferPool();
+  const { tracks, bufferIds } = serializeTracks(project, pool);
   return {
     manifest: {
       version: 1,
       title,
       sampleRate: project.sampleRate,
       numChannels: project.numChannels,
-      buffers: buffers.map((b) => b.id),
+      buffers: bufferIds,
       tracks,
     },
-    buffers,
+    buffers: pool.list,
   };
 }
 

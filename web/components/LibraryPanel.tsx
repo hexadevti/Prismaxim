@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, Play, RefreshCw, Trash2 } from 'lucide-react';
 import { STEM_META } from '@prismaxim/shared';
 import type {
+  AnalysisMeta,
   ArrangementSummary,
   ProjectMeta,
   SelectableStem,
@@ -42,6 +43,42 @@ function fmtCount(n: number): string {
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
   if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
   return String(n);
+}
+
+/** Musical summary (key · BPM) from persisted analysis, or null when absent. */
+function fmtAnalysis(a: AnalysisMeta): string | null {
+  const parts: string[] = [];
+  if (a.key && a.key !== '—') parts.push(`${a.key} ${a.scale}`);
+  if (a.bpm > 0) parts.push(`${Math.round(a.bpm)} BPM`);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+/**
+ * Match a project against a free-text library query. Supports a plain BPM number
+ * ("128" → within ±3), a BPM range ("120-130"), or a substring searched across
+ * title, key/scale, tags and engine. Empty query matches everything.
+ */
+function matchProject(p: ProjectMeta, q: string): boolean {
+  const query = q.trim().toLowerCase();
+  if (!query) return true;
+  const a = p.analysis;
+  const range = query.match(/^(\d{2,3})\s*-\s*(\d{2,3})$/);
+  if (range) {
+    if (!a?.bpm) return false;
+    const lo = Math.min(Number(range[1]), Number(range[2]));
+    const hi = Math.max(Number(range[1]), Number(range[2]));
+    return a.bpm >= lo && a.bpm <= hi;
+  }
+  if (a?.bpm && /^\d{2,3}$/.test(query) && Math.abs(a.bpm - Number(query)) <= 3) return true;
+  const haystack = [
+    p.title,
+    a && a.key !== '—' ? `${a.key} ${a.scale}` : '',
+    a?.tags?.join(' ') ?? '',
+    p.engine,
+  ]
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(query);
 }
 
 /** Stats line (uploader · views · likes) for a YouTube source, if present. */
@@ -225,6 +262,8 @@ export default function LibraryPanel({
   // Which stems a re-split produces (shared across the sources below). Default:
   // none — the source loads unseparated unless the user picks stems.
   const [stems, setStems] = useState<SelectableStem[]>([]);
+  // Free-text filter over saved projects (title / key / BPM / tags).
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     setHasCloud(cloudConfigured());
@@ -255,6 +294,7 @@ export default function LibraryPanel({
 
   // Projects show the thumbnail of the source they were separated from.
   const srcById = new Map((sources ?? []).map((s) => [s.id, s]));
+  const shownProjects = (projects ?? []).filter((p) => matchProject(p, query));
 
   return (
     <div className="panel">
@@ -329,10 +369,29 @@ export default function LibraryPanel({
           ))}
 
           <h3 style={{ marginTop: 20 }}>Saved projects</h3>
+          {projects && projects.length > 0 && (
+            <div className="field" style={{ marginTop: 4 }}>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search by title, key, BPM (e.g. 128 or 120-130), or tag"
+                aria-label="Search saved projects"
+              />
+              {query.trim() !== '' && (
+                <div className="hint" style={{ marginTop: 4 }}>
+                  {shownProjects.length} of {projects.length} projects
+                </div>
+              )}
+            </div>
+          )}
           {projects && projects.length === 0 && (
             <p className="hint">No projects yet — split a song to save one here.</p>
           )}
-          {projects?.map((p) => {
+          {projects && projects.length > 0 && shownProjects.length === 0 && (
+            <p className="hint">No projects match “{query}”.</p>
+          )}
+          {shownProjects.map((p) => {
             const src = p.sourceId ? srcById.get(p.sourceId) : undefined;
             return (
               <div className="lib-item" key={p.id}>
@@ -343,6 +402,12 @@ export default function LibraryPanel({
                     {p.stems.length} stems · {p.engine} · {fmtDate(p.createdAt)}
                     {fmtMs(p.separationMs) && ` · separated in ${fmtMs(p.separationMs)}`}
                   </div>
+                  {p.analysis && fmtAnalysis(p.analysis) && (
+                    <div className="hint">{fmtAnalysis(p.analysis)}</div>
+                  )}
+                  {p.analysis?.tags && p.analysis.tags.length > 0 && (
+                    <div className="hint">{p.analysis.tags.slice(0, 4).join(' · ')}</div>
+                  )}
                 </div>
                 <div className="lib-actions">
                   <button className="btn" onClick={() => onOpenProject(p)}>

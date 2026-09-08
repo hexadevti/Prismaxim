@@ -39,6 +39,14 @@ export const BASIC_PITCH_MODEL_URL =
   process.env.NEXT_PUBLIC_BASIC_PITCH_MODEL_URL ?? '/models/basic-pitch/model.json';
 
 /**
+ * Whisper ASR model (audio → lyrics) for Transformers.js, fetched from the
+ * Hugging Face Hub and cached in the browser. `whisper-base` is a good
+ * quality/size balance; swap to `whisper-tiny` for speed on weak devices.
+ */
+export const WHISPER_MODEL_ID =
+  process.env.NEXT_PUBLIC_WHISPER_MODEL_ID ?? 'onnx-community/whisper-base';
+
+/**
  * Optional cloud separation endpoint (see /cloud). When set, the app offers an
  * opt-in "Cloud (fast)" separation mode. Both are also editable at runtime in
  * Options. Empty string = no cloud option shown.

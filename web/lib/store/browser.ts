@@ -249,6 +249,7 @@ export const browserStore: LibraryStore = {
       stems: set.stems.map((s) => s.name),
       engine: meta.engine,
       separationMs: meta.separationMs,
+      analysis: meta.analysis,
     };
     await idbPut('projects', project);
     return project;

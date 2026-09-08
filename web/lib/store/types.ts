@@ -12,6 +12,7 @@
  */
 
 import type {
+  AnalysisMeta,
   ArrangementSummary,
   ProgressUpdate,
   ProjectMeta,
@@ -27,6 +28,8 @@ export interface SaveProjectMeta {
   /** compute engine that produced the stems, e.g. 'webgpu' | 'wasm' | 'cpu' */
   engine: string;
   separationMs?: number;
+  /** Musical analysis computed from the stems; persisted with the project. */
+  analysis?: AnalysisMeta;
 }
 
 export interface LibraryStore {

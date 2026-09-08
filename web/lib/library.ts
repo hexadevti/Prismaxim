@@ -5,12 +5,14 @@
 
 import {
   STEM_NAMES,
+  type AnalysisMeta,
   type ArrangementSummary,
   type ProgressUpdate,
   type ProjectMeta,
   type SelectableStem,
   type SourceMeta,
   type StemSet,
+  type YouTubeSearchResult,
 } from '@prismaxim/shared';
 import { decodeToModelAudio, stemSetFromChannels } from './audio';
 import { encodeWav } from './mixer/export';
@@ -35,6 +37,24 @@ export async function listArrangements(baseUrl: string): Promise<ArrangementSumm
 
 export async function deleteArrangement(baseUrl: string, id: string): Promise<void> {
   await fetch(`${baseUrl}/library/arrangements/${id}`, { method: 'DELETE' });
+}
+
+/**
+ * Search YouTube by song/artist name (desktop backend only). Returns metadata
+ * only — pass a chosen result's `url` to importYouTube to actually fetch audio.
+ */
+export async function searchYouTube(
+  baseUrl: string,
+  query: string,
+  limit = 12,
+): Promise<YouTubeSearchResult[]> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  const res = await fetch(`${baseUrl}/youtube/search?${params}`);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Search failed (${res.status}). ${detail}`);
+  }
+  return res.json();
 }
 
 export async function importYouTube(baseUrl: string, url: string): Promise<SourceMeta> {
@@ -110,6 +130,7 @@ export async function saveBrowserProject(
   set: StemSet,
   title: string,
   onProgress?: (p: ProgressUpdate) => void,
+  analysis?: AnalysisMeta,
 ): Promise<ProjectMeta> {
   const shellRes = await fetch(`${baseUrl}/library/projects`, {
     method: 'POST',
@@ -121,6 +142,7 @@ export async function saveBrowserProject(
       numChannels: set.numChannels,
       lengthSamples: set.length,
       stems: set.stems.map((s) => s.name),
+      analysis,
     }),
   });
   if (!shellRes.ok) throw new Error(`Failed to create project (${shellRes.status})`);

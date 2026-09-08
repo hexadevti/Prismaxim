@@ -19,7 +19,8 @@ import { getCloudToken, getCloudUrl } from './cloudConfig';
 import { separateFromSource, separateUpload } from './engines/client';
 import { getSourceAudioBytes, importYouTube, uploadSource } from './library';
 import { singleTrackProject, type EditorProject } from './editor/model';
-import { store } from './store';
+import { computeStemSetAnalysis } from './editor/analysis';
+import { store, type SaveProjectMeta } from './store';
 
 export interface JobResult {
   /** Present for a separation job (the 6-or-fewer stems). */
@@ -30,6 +31,25 @@ export interface JobResult {
   title: string;
   /** true if the result was persisted to the library */
   persisted: boolean;
+}
+
+/**
+ * Persist a separated project, attaching musical analysis (key/tempo/loudness)
+ * computed from the stems. Analysis is best-effort — a failure never blocks the
+ * save, the project is just stored without it.
+ */
+async function persistProject(
+  set: StemSet,
+  meta: SaveProjectMeta,
+  onProgress: (p: ProgressUpdate) => void,
+): Promise<void> {
+  let analysis: SaveProjectMeta['analysis'];
+  try {
+    analysis = computeStemSetAnalysis(set);
+  } catch {
+    analysis = undefined;
+  }
+  await store.saveProject(set, { ...meta, analysis }, onProgress);
 }
 
 /** Wrap onProgress to record the most recent compute engine reported. */
@@ -55,7 +75,7 @@ async function separateAndPersistInBrowser(
   const t0 = performance.now();
   const set = await separateInBrowser(audio, wrapped, stems);
   const separationMs = Math.round(performance.now() - t0);
-  await store.saveProject(set, { title, sourceId, engine: state.engine, separationMs }, onProgress);
+  await persistProject(set, { title, sourceId, engine: state.engine, separationMs }, onProgress);
   return set;
 }
 
@@ -68,7 +88,7 @@ async function cloudSeparateBytes(
   stems?: SelectableStem[],
 ): Promise<StemSet> {
   const set = await separateOnCloud(getCloudUrl(), getCloudToken(), bytes, onProgress, stems);
-  await store.saveProject(set, { title, sourceId, engine: 'cloud' }, onProgress);
+  await persistProject(set, { title, sourceId, engine: 'cloud' }, onProgress);
   return set;
 }
 

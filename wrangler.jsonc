@@ -3,17 +3,27 @@
   //
   // `wrangler deploy` runs `build.command` first (producing web/out via Next's
   // static export), then uploads web/out as an assets-only Worker (no server
-  // code). Because the build is defined here, the deploy is self-contained and
-  // does NOT depend on the dashboard "Build command" being set correctly — the
-  // dashboard command can be left at its default (or blanked to skip a
-  // redundant build). web/out/_headers carries the COOP/COEP cross-origin
-  // isolation headers onnxruntime-web (SharedArrayBuffer) + the AudioWorklet
-  // need. The ~26 MB ORT/WebGPU wasm is loaded from a CDN at runtime and
-  // dropped from the upload (see web/public/.assetsignore + lib/config.ts).
+  // code). Because the build is defined here the deploy is self-contained, so
+  // it does NOT depend on the dashboard "Build command" — that field can be
+  // left blank (recommended: it otherwise builds a second time) or set to
+  // `npm run deploy:build`, which does the same thing.
+  //
+  // web/out/_headers carries the COOP/COEP cross-origin isolation headers that
+  // onnxruntime-web (SharedArrayBuffer) + the AudioWorklet recorder need.
+  //
+  // The build emits two ONNX Runtime wasm binaries — ~26 MB for the app's own
+  // onnxruntime-web (Demucs separation) and ~21 MB for the copy Transformers.js
+  // bundles (Whisper lyrics). Both exceed Cloudflare's 25 MiB per-file asset
+  // limit and both are fetched from a CDN at runtime, so they are dropped from
+  // the upload by web/public/.assetsignore, which Workers Static Assets reads.
+  // (Cloudflare *Pages* ignores that file — hence Workers here.)
+  //
+  // Deploy from the repo root: `npm run deploy` (or `npm run deploy:dry` to
+  // build and check the upload without publishing).
   "$schema": "node_modules/wrangler/config-schema.json",
-  // MUST match the Worker name you created in the dashboard. Rename here if yours differs.
+  // MUST match the Worker name in the dashboard. Rename here if yours differs.
   "name": "prismaxim",
-  "compatibility_date": "2026-06-01",
+  "compatibility_date": "2026-09-01",
   "build": {
     "command": "npm run build:static -w web"
   },

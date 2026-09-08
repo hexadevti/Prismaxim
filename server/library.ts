@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rm, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { ProjectMeta, SelectableStem, SourceMeta, StemSet } from '@prismaxim/shared';
+import type { AnalysisMeta, ProjectMeta, SelectableStem, SourceMeta, StemSet } from '@prismaxim/shared';
 import { isStemName, REMAINING_STEM } from '@prismaxim/shared';
 import { LIBRARY_DIR } from './config';
 import { encodeWav } from './decode';
@@ -184,6 +184,7 @@ export async function createProjectShell(meta: {
   numChannels: number;
   lengthSamples: number;
   stems: SelectableStem[];
+  analysis?: AnalysisMeta;
 }): Promise<ProjectMeta> {
   await ensureDirs();
   const id = randomUUID();
@@ -198,6 +199,7 @@ export async function createProjectShell(meta: {
     lengthSamples: meta.lengthSamples,
     stems: meta.stems,
     engine: meta.engine,
+    analysis: meta.analysis,
   };
   await writeFile(join(dir, 'meta.json'), JSON.stringify(projectMeta, null, 2));
   return projectMeta;

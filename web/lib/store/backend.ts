@@ -34,7 +34,8 @@ export const backendStore: LibraryStore = {
   deleteSource: (id) => deleteSource(base, id),
 
   listProjects: () => listProjects(base),
-  saveProject: (set, meta, onProgress) => saveBrowserProject(base, set, meta.title, onProgress),
+  saveProject: (set, meta, onProgress) =>
+    saveBrowserProject(base, set, meta.title, onProgress, meta.analysis),
   loadProject: (project, onProgress) => loadProject(base, project, onProgress),
   deleteProject: (id) => deleteProject(base, id),
 

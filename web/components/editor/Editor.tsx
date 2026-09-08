@@ -54,8 +54,8 @@ import {
   setClipFade,
   splitAt,
   trimClipEdge,
-  type Clipboard,
 } from '@/lib/editor/edits';
+import { getClipboard, setClipboard, useClipboard } from '@/lib/editor/clipboard';
 import { History } from '@/lib/editor/history';
 import { EditorEngine } from '@/lib/editor/engine';
 import { InputController } from '@/lib/editor/record';
@@ -77,6 +77,9 @@ import {
   renderTrack,
 } from '@/lib/editor/export';
 import { transcribeAudioBuffer } from '@/lib/editor/transcribe';
+import { transcribeLyrics, toLrc, toSrt, type LyricSegment } from '@/lib/editor/lyrics';
+import { cloudConfigured, getCloudToken, getCloudUrl } from '@/lib/cloudConfig';
+import { encodeWavFromChannels } from '@/lib/mixer/export';
 import { notesToSmf } from '@/lib/editor/midi';
 import { cleanNotes, toMonophonic } from '@/lib/editor/midiClean';
 import { getInstrument } from '@/lib/editor/instruments';
@@ -86,6 +89,8 @@ import StatsPanel from './StatsPanel';
 import Toolbar from './Toolbar';
 import RecordBar from './RecordBar';
 import ChordStrip from './ChordStrip';
+import LyricLane from './LyricLane';
+import LyricCaptions from './LyricCaptions';
 import BeatStrip from './BeatStrip';
 import Ruler from './Ruler';
 import TimelineTrack, {
@@ -165,25 +170,43 @@ const DEFAULT_FADE_SEC = 1;
 
 export default function Editor({
   initialProject,
+  initialDirty,
+  songId,
   title,
   onSaved,
   onDirtyChange,
+  onProjectChange,
   onImport,
   pendingImport,
 }: {
   initialProject: EditorProject;
+  /** Unsaved state to resume with. Switching tabs remounts the editor, so a tab
+   *  that was dirty must come back dirty — otherwise closing it stops warning. */
+  initialDirty?: boolean;
+  /** Identity of the open song, stable across remounts. Lets a paste tell audio
+   *  copied from this song from audio copied from another tab. */
+  songId?: string;
   title: string;
   onSaved?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Mirror of the live project for the shell — see the sync effect below. Must
+   *  be referentially stable, and must not re-render the shell (the editor is
+   *  reseeded from `initialProject`, so a render loop would rebuild the engine). */
+  onProjectChange?: (project: EditorProject) => void;
   /** Open the import window (wired by the shell). Absent → no Import button. */
   onImport?: () => void;
   /** Tracks to append to the live project; `token` changes per import request. */
   pendingImport?: { tracks: EditorTrack[]; token: number } | null;
 }) {
+  // What the clipboard records as the origin of a copy. Falls back to the title
+  // when the shell has no tabs (mobile, single-song use) — good enough there,
+  // since without tabs every paste is same-song anyway.
+  const sessionKey = songId ?? title;
+
   const [engine, setEngine] = useState<EditorEngine | null>(null);
   const [project, setProject] = useState<EditorProject>(() => initialProject);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirty] = useState(initialDirty ?? false);
   const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
   const [pxPerSec, setPxPerSec] = useState(20);
   const [scrollSec, setScrollSec] = useState(0);
@@ -197,7 +220,13 @@ export default function Editor({
   const viewportWidth = Math.max(0, containerWidth - sidebarWidth);
   const [playing, setPlaying] = useState(false);
   const [, setTimeSec] = useState(0);
-  const [hasClipboard, setHasClipboard] = useState(false);
+  // The clipboard lives outside this component so a copy survives the remount
+  // that switching songs causes — that is what makes cross-tab paste work.
+  const clipboard = useClipboard();
+  const hasClipboard = !!clipboard;
+  // Named only when the copy came from a different song, so the paste controls
+  // say where the audio is about to come from before it lands.
+  const pasteFrom = clipboard && clipboard.sourceId !== sessionKey ? clipboard.sourceTitle : undefined;
   const [exporting, setExporting] = useState<null | 'wav' | 'mp3'>(null);
   const [exportOpen, setExportOpen] = useState(false);
   // Mobile: the transport row keeps only play/new-track/save; everything else
@@ -225,7 +254,14 @@ export default function Editor({
   const [pitchBusy, setPitchBusy] = useState(false);
   const [stretchProg, setStretchProg] = useState<{ done: number; total: number } | null>(null);
   const [chords, setChords] = useState<ChordSegment[]>([]);
-  const [analyzing, setAnalyzing] = useState<null | 'tempo' | 'chords' | 'midi' | 'stats'>(null);
+  const [lyrics, setLyrics] = useState<LyricSegment[]>([]);
+  const [lyricsProgress, setLyricsProgress] = useState<number | null>(null);
+  const [captionsOn, setCaptionsOn] = useState(false);
+  // Use the cloud GPU endpoint for the in-editor "separate selection" pass.
+  const [sepUseCloud, setSepUseCloud] = useState(false);
+  const [analyzing, setAnalyzing] = useState<null | 'tempo' | 'chords' | 'midi' | 'stats' | 'lyrics'>(
+    null,
+  );
   const [stats, setStats] = useState<MusicStats | null>(null);
   const [midiProgress, setMidiProgress] = useState<{ name: string; percent: number } | null>(null);
   const [cleanTrack, setCleanTrack] = useState<{ id: string; name: string } | null>(null);
@@ -272,7 +308,6 @@ export default function Editor({
   const [, forceHistory] = useState(0);
   const inputRef = useRef<InputController | null>(null);
   const metroRef = useRef<Metronome | null>(null);
-  const clipboardRef = useRef<Clipboard | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const recordStartRef = useRef(0);
   const recordTargetRef = useRef<string | null>(null);
@@ -370,10 +405,17 @@ export default function Editor({
     return () => window.removeEventListener('beforeunload', handler);
   }, [dirty]);
 
-  // Report dirty state up so the shell can confirm before replacing the project.
+  // Report dirty state up so the shell can confirm before closing the tab.
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
+
+  // Mirror the live project up to the shell. Only one editor is mounted at a
+  // time, so switching tabs unmounts this one — the shell keeps the latest
+  // project per tab and reseeds from it when the user comes back.
+  useEffect(() => {
+    onProjectChange?.(project);
+  }, [project, onProjectChange]);
 
   // Keep metronome settings in sync.
   useEffect(() => {
@@ -626,30 +668,36 @@ export default function Editor({
       sel.clipIds.length > 0
         ? copyClips(projectRef.current, sel.clipIds)
         : copyRange(projectRef.current, effSelection());
-    clipboardRef.current = cb;
-    setHasClipboard(!!cb);
-  }, [effSelection]);
+    if (cb) setClipboard(cb, title, sessionKey);
+  }, [effSelection, title, sessionKey]);
 
   const doCut = useCallback(() => {
     const sel = selectionRef.current;
     if (sel.clipIds.length > 0) {
       const cb = copyClips(projectRef.current, sel.clipIds);
-      clipboardRef.current = cb;
-      setHasClipboard(!!cb);
+      if (cb) setClipboard(cb, title, sessionKey);
       commit(deleteSelection(projectRef.current, sel));
       setSelection(EMPTY_SELECTION);
       return;
     }
-    const { project: next, clipboard } = cutRange(projectRef.current, effSelection());
-    clipboardRef.current = clipboard;
-    setHasClipboard(!!clipboard);
+    const { project: next, clipboard: cb } = cutRange(projectRef.current, effSelection());
+    if (cb) setClipboard(cb, title, sessionKey);
     commit(next);
-  }, [commit, effSelection]);
+  }, [commit, effSelection, title, sessionKey]);
 
   const doPaste = useCallback(() => {
-    if (!clipboardRef.current) return;
-    commit(paste(projectRef.current, clipboardRef.current, playheadSec()));
-  }, [commit]);
+    const held = getClipboard();
+    if (!held) return;
+    commit(
+      paste(projectRef.current, held.content, playheadSec(), {
+        // A single-track copy follows the user's selected track; a multi-track
+        // one is placed by stem so it can't all pile onto one lane.
+        preferTrackId: selectionRef.current.trackIds[0],
+        // Only label new tracks when the audio really came from another song.
+        sourceTitle: held.sourceId === sessionKey ? undefined : held.sourceTitle,
+      }),
+    );
+  }, [commit, sessionKey]);
 
   const doDelete = useCallback(() => {
     commit(deleteSelection(projectRef.current, effSelection()));
@@ -1482,6 +1530,42 @@ export default function Editor({
     }
   };
 
+  /* ---------- vocals → lyrics (Whisper ASR) ---------- */
+  const doLyrics = async () => {
+    const p = projectRef.current;
+    // Best on the isolated vocals stem; fall back to any audio track (e.g. an
+    // unseparated import) — results on a full mix are noticeably worse.
+    const vocals = p.tracks.find((t) => t.stem === 'vocals' && t.clips.length > 0);
+    const track = vocals ?? p.tracks.find((t) => t.clips.length > 0);
+    if (!track) {
+      window.alert('No audio track to transcribe. Separate the vocals stem first.');
+      return;
+    }
+    setAnalyzing('lyrics');
+    setLyricsProgress(0);
+    try {
+      const buf = await renderTrack(p, track.id);
+      if (!buf) return;
+      const segs = await transcribeLyrics(buf, (pr) => setLyricsProgress(Math.round(pr * 100)));
+      setLyrics(segs);
+      if (segs.length === 0) window.alert('No lyrics detected in that track.');
+      else setCaptionsOn(true); // show captions immediately so the result is visible
+
+    } catch (e) {
+      window.alert('Lyrics transcription failed: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setAnalyzing(null);
+      setLyricsProgress(null);
+    }
+  };
+
+  const exportLyrics = (fmt: 'lrc' | 'srt') => {
+    if (lyrics.length === 0) return;
+    const text = fmt === 'lrc' ? toLrc(lyrics) : toSrt(lyrics);
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    downloadBlob(blob, `${safeName(title)}.${fmt}`);
+  };
+
   /* ---------- audio → MIDI ---------- */
   const doTranscribe = (trackId: string) => {
     const track = projectRef.current.tracks.find((t) => t.id === trackId);
@@ -1588,18 +1672,34 @@ export default function Editor({
         window.alert('The selected region has no audible audio to separate.');
         return;
       }
-      // Lazy-load the browser separation worker (keeps onnxruntime-web out of the
-      // editor's initial chunk). Separation runs client-side, in this tab.
-      const { separateInBrowser } = await import('@/lib/engines/separation.web');
-      const set = await separateInBrowser(
-        audio,
-        (p) =>
-          setSepProgress({
-            percent: p.percent,
-            label: p.phase === 'loading-model' ? 'Loading model…' : 'Separating…',
-          }),
-        picks,
-      );
+      // Cloud GPU (opt-in) or in-browser onnxruntime-web. The cloud service
+      // decodes an encoded body, so send the rendered region as WAV bytes.
+      const useCloud = sepUseCloud && cloudConfigured();
+      let set;
+      if (useCloud) {
+        const wavBytes = await encodeWavFromChannels(audio.channels, audio.sampleRate).arrayBuffer();
+        const { separateOnCloud } = await import('@/lib/engines/cloud');
+        set = await separateOnCloud(
+          getCloudUrl(),
+          getCloudToken(),
+          wavBytes,
+          (p) => setSepProgress({ percent: p.percent, label: p.message ?? 'Separating on cloud…' }),
+          picks,
+        );
+      } else {
+        // Lazy-load the browser separation worker (keeps onnxruntime-web out of the
+        // editor's initial chunk). Separation runs client-side, in this tab.
+        const { separateInBrowser } = await import('@/lib/engines/separation.web');
+        set = await separateInBrowser(
+          audio,
+          (p) =>
+            setSepProgress({
+              percent: p.percent,
+              label: p.phase === 'loading-model' ? 'Loading model…' : 'Separating…',
+            }),
+          picks,
+        );
+      }
       const dur = dlg.endSec - dlg.startSec;
       const next = cloneProject(projectRef.current);
       const affected = new Set<string>();
@@ -1643,7 +1743,7 @@ export default function Editor({
     } finally {
       setSepProgress(null);
     }
-  }, [stemDialog, stemSel, commit]);
+  }, [stemDialog, stemSel, commit, sepUseCloud]);
 
   const exportMidi = (track: EditorTrack) => {
     if (!track.midi?.length) return;
@@ -1921,6 +2021,7 @@ export default function Editor({
       canUndo={history.canUndo()}
       canRedo={history.canRedo()}
       canPaste={hasClipboard}
+      pasteFrom={pasteFrom}
       hasSelection={hasSelection}
       onZoomIn={() => zoomBy(1.4)}
       onZoomOut={() => zoomBy(0.71)}
@@ -1929,6 +2030,7 @@ export default function Editor({
       onDetectTempo={doDetectTempo}
       onDetectChords={doDetectChords}
       onStats={doStats}
+      onLyrics={doLyrics}
       analyzing={analyzing}
       chordCount={chords.length}
       toolsOpen={toolsOpen}
@@ -2031,6 +2133,35 @@ export default function Editor({
             sidebarWidth={sidebarWidth}
           />
         )}
+        {!IS_MOBILE && lyrics.length > 0 && (
+          <LyricLane
+            lyrics={lyrics}
+            onChange={setLyrics}
+            pxPerSec={pxPerSec}
+            scrollSec={scrollSec}
+            viewportWidth={viewportWidth}
+            sidebarWidth={sidebarWidth}
+            getCurrentSec={playheadSec}
+            captionsOn={captionsOn}
+            onToggleCaptions={() => setCaptionsOn((v) => !v)}
+            onExport={exportLyrics}
+            onDelete={() => {
+              if (!window.confirm('Delete the lyrics track? This discards the transcribed lines.'))
+                return;
+              setLyrics([]);
+              setCaptionsOn(false);
+            }}
+            audioSelected={
+              selection.clipIds.length > 0 ||
+              selectedTrackId !== null ||
+              selection.endSec - selection.startSec > 1e-6
+            }
+            onSelect={() => {
+              setSelection(EMPTY_SELECTION);
+              setSelectedTrackId(null);
+            }}
+          />
+        )}
         <div className="lanes" ref={rowsRef}>
           {project.tracks.map((t) => (
             <TimelineTrack
@@ -2120,6 +2251,30 @@ export default function Editor({
             </p>
           </div>
         </div>
+      )}
+
+      {lyricsProgress !== null && (
+        <div className="midi-overlay">
+          <div className="midi-progress-card">
+            <div className="phase-label">
+              <strong className="mp-title">
+                <Music4 size={16} /> Transcribing vocals to lyrics…
+              </strong>
+              <span className="engine">{lyricsProgress}%</span>
+            </div>
+            <div className="bar">
+              <span style={{ width: `${Math.max(4, lyricsProgress)}%` }} />
+            </div>
+            <p className="hint" style={{ marginTop: 8 }}>
+              {lyricsProgress < 90 ? 'Loading the Whisper model…' : 'Recognizing speech…'} Keep this
+              tab open.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {lyrics.length > 0 && (
+        <LyricCaptions lyrics={lyrics} getCurrentSec={playheadSec} visible={captionsOn} />
       )}
 
       {sepProgress && (
@@ -2344,19 +2499,34 @@ export default function Editor({
                   Splits {fmtTime(stemDialog.startSec)}–{fmtTime(stemDialog.endSec)} of the selected
                   track{stemDialog.trackIds.length > 1 ? 's' : ''} into the stems below and drops each
                   one back at the same spot. A stem reuses its matching track when one exists;
-                  otherwise a new track is created. Runs in your browser.
+                  otherwise a new track is created.{' '}
+                  {sepUseCloud && cloudConfigured() ? 'Runs on the cloud GPU.' : 'Runs in your browser.'}
                 </p>
                 <div className="field">
                   <label>Stems to create</label>
                   <StemPicker value={stemSel} onChange={setStemSel} />
                 </div>
+                {cloudConfigured() && (
+                  <label
+                    className="hint"
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', marginTop: 8 }}
+                    title="Separate on the cloud GPU endpoint instead of in this browser tab"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={sepUseCloud}
+                      onChange={(e) => setSepUseCloud(e.target.checked)}
+                    />
+                    ⚡ Cloud (fast)
+                  </label>
+                )}
                 <div className="row" style={{ marginTop: 12 }}>
                   <button
                     className="btn"
                     onClick={runSeparateSelection}
                     disabled={stemSel.length === 0}
                   >
-                    <Layers size={15} /> Separate
+                    <Layers size={15} /> {sepUseCloud && cloudConfigured() ? 'Separate ⚡' : 'Separate'}
                   </button>
                   <button className="btn ghost" onClick={() => setStemDialog(null)}>
                     Cancel
@@ -2469,7 +2639,7 @@ export default function Editor({
               <Copy size={14} /> Copy
             </button>
             <button onClick={() => { doPaste(); setMenu(null); }} disabled={!hasClipboard}>
-              <ClipboardPaste size={14} /> Paste
+              <ClipboardPaste size={14} /> {pasteFrom ? `Paste from “${pasteFrom}”` : 'Paste'}
             </button>
             <button onClick={() => { doSplit(); setMenu(null); }}>
               <Split size={14} />{' '}
