@@ -32,6 +32,8 @@ export interface ToolbarProps {
   canUndo: boolean;
   canRedo: boolean;
   canPaste: boolean;
+  /** Song the clipboard came from, when it wasn't this one. Shown in the tip. */
+  pasteFrom?: string;
   hasSelection: boolean;
   // view
   onZoomIn: () => void;
@@ -64,7 +66,7 @@ export default function Toolbar(p: ToolbarProps) {
         <button className="btn secondary" onClick={p.onCopy} disabled={!p.hasSelection} title="Copy (Ctrl+C)">
           <Copy size={14} /> Copy
         </button>
-        <button className="btn secondary" onClick={p.onPaste} disabled={!p.canPaste} title="Paste (Ctrl+V)">
+        <button className="btn secondary" onClick={p.onPaste} disabled={!p.canPaste} title={p.pasteFrom ? `Paste from “${p.pasteFrom}” (Ctrl+V)` : 'Paste (Ctrl+V)'}>
           <ClipboardPaste size={14} /> Paste
         </button>
         <button

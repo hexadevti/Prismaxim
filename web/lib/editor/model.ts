@@ -151,6 +151,28 @@ export function singleTrackProject(
   };
 }
 
+/**
+ * Copy another song's tracks for merging into the open project.
+ *
+ * Fresh track/clip ids, so the same song can be merged more than once, and a
+ * `label` suffix on each name — a project holding two songs otherwise shows two
+ * tracks called "Drums" with nothing to tell them apart. Solo is cleared: a
+ * soloed incoming track would silence everything already in the project.
+ *
+ * AudioBuffers are shared, so a merge costs no extra audio memory.
+ */
+export function cloneTracksForMerge(tracks: EditorTrack[], label?: string): EditorTrack[] {
+  return tracks.map((t) => ({
+    ...t,
+    id: uid(),
+    // An unseparated import is already named after its song — don't say it twice.
+    name: label && t.name !== label ? `${t.name} · ${label}` : t.name,
+    clips: t.clips.map((c) => ({ ...c, id: uid() })),
+    midi: t.midi ? t.midi.map((n) => ({ ...n })) : undefined,
+    soloed: false,
+  }));
+}
+
 /** An empty editor project (no tracks) — the base state before anything is loaded. */
 export function emptyProject(): EditorProject {
   return { tracks: [], sampleRate: 44100, numChannels: 2 };

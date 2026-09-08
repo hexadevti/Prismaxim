@@ -4,6 +4,7 @@
  * snapshot cheaply. No AudioBuffer data is ever mutated.
  */
 
+import { STEM_META, type SelectableStem } from '@prismaxim/shared';
 import {
   clipEnd,
   cloneProject,
@@ -25,6 +26,12 @@ export interface ClipboardFragment {
 export interface ClipboardTrack {
   trackId: string;
   fragments: ClipboardFragment[];
+  /** Origin stem — how a paste into a different song finds the matching track
+   *  (drums land on drums). Absent for recorded/unseparated tracks. */
+  stem?: SelectableStem;
+  /** Origin track name — the fallback match, and the name of a track created
+   *  when the destination song has nothing to paste onto. */
+  trackName?: string;
 }
 
 export interface Clipboard {
@@ -138,10 +145,10 @@ export function copyClips(project: EditorProject, clipIds: string[]): Clipboard 
     });
     byTrack.set(trackId, arr);
   }
-  const tracks: ClipboardTrack[] = [...byTrack.entries()].map(([trackId, fragments]) => ({
-    trackId,
-    fragments,
-  }));
+  const tracks: ClipboardTrack[] = [...byTrack.entries()].map(([trackId, fragments]) => {
+    const src = project.tracks.find((t) => t.id === trackId);
+    return { trackId, fragments, stem: src?.stem, trackName: src?.name };
+  });
   return { durationSec: maxEnd - minStart, tracks };
 }
 
@@ -207,7 +214,7 @@ export function copyRange(project: EditorProject, sel: Selection): Clipboard | n
         });
       }
     }
-    tracks.push({ trackId: track.id, fragments });
+    tracks.push({ trackId: track.id, fragments, stem: track.stem, trackName: track.name });
   }
   return { durationSec: sel.endSec - sel.startSec, tracks };
 }
@@ -249,16 +256,68 @@ export function cutRange(
   return { project: project2, clipboard };
 }
 
-/** Paste clipboard fragments at `atSec` onto their original tracks (or the first). */
+export interface PasteOptions {
+  /** Track to land a single-track clipboard on — the user's current selection. */
+  preferTrackId?: string;
+  /** Song the copy came from; suffixes the name of any track created here. */
+  sourceTitle?: string;
+}
+
+/** An empty track to receive a paste that has nowhere else to go. */
+function trackForPaste(ct: ClipboardTrack, sourceTitle?: string): EditorTrack {
+  const meta = ct.stem ? STEM_META[ct.stem] : undefined;
+  const base = meta?.label ?? ct.trackName ?? 'Pasted';
+  // An unseparated track is already named after its song — don't say it twice.
+  const name = sourceTitle && base !== sourceTitle ? `${base} · ${sourceTitle}` : base;
+  return {
+    id: uid(),
+    name,
+    color: meta?.color ?? '#64748b',
+    stem: ct.stem,
+    clips: [],
+    muted: false,
+    soloed: false,
+    volume: 1,
+    armed: false,
+  };
+}
+
+/**
+ * Paste clipboard fragments at `atSec`.
+ *
+ * Within one song the original track ids still exist, so everything goes back
+ * where it came from. Pasting into a *different* song (copied from another tab)
+ * has no such ids, so the target is resolved by stem — drums land on drums —
+ * then by track name, then by the user's selected track for a single-track
+ * copy. Anything still unmatched gets a new track rather than being dumped onto
+ * whichever track happens to be first, which would silently bury audio.
+ */
 export function paste(
   project: EditorProject,
   clipboard: Clipboard,
   atSec: number,
+  opts: PasteOptions = {},
 ): EditorProject {
   const next = cloneProject(project);
+  const single = clipboard.tracks.length === 1;
+  // Never let two clipboard tracks resolve to the same destination.
+  const claimed = new Set<string>();
+
   for (const ct of clipboard.tracks) {
-    const target = next.tracks.find((t) => t.id === ct.trackId) ?? next.tracks[0];
-    if (!target) continue;
+    const free = (t: EditorTrack | undefined) =>
+      t && !claimed.has(t.id) && !t.midi ? t : undefined;
+    let target =
+      free(next.tracks.find((t) => t.id === ct.trackId)) ??
+      (ct.stem ? free(next.tracks.find((t) => t.stem === ct.stem)) : undefined) ??
+      (ct.trackName ? free(next.tracks.find((t) => t.name === ct.trackName)) : undefined) ??
+      (single && opts.preferTrackId
+        ? free(next.tracks.find((t) => t.id === opts.preferTrackId))
+        : undefined);
+    if (!target) {
+      target = trackForPaste(ct, opts.sourceTitle);
+      next.tracks.push(target);
+    }
+    claimed.add(target.id);
     for (const frag of ct.fragments) {
       target.clips.push({
         id: uid(),

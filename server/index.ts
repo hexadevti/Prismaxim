@@ -32,6 +32,7 @@ import { BODY_LIMIT, HOST, PORT, WEB_DIR } from './config';
 import { decodePcm, encodeWav } from './decode';
 import { createNodeRuntime, ensureModel } from './separation.node';
 import { extractAudio } from './extract.node';
+import { searchWithYtDlp } from './ytdlp';
 import {
   createArrangement,
   createProjectShell,
@@ -187,6 +188,24 @@ async function main() {
     return reply.send(buf);
   };
   app.route({ method: ['GET', 'POST'], url: '/proxy', handler: proxyHandler });
+
+  /* ---------------- YouTube search ---------------- */
+
+  // Find videos by song/artist name. Metadata only — nothing is downloaded, so
+  // this is a ~2s round trip. The client feeds a chosen result's `url` straight
+  // back into POST /library/import.
+  app.get('/youtube/search', async (req, reply) => {
+    const q = (req.query as { q?: string; limit?: string })?.q?.trim();
+    if (!q) return reply.code(400).send('Missing q');
+    const limit = Number((req.query as { limit?: string })?.limit) || 12;
+    try {
+      return reply.send(await searchWithYtDlp(q, limit));
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      req.log.error({ err }, 'youtube search failed');
+      return reply.code(502).send(`YouTube search failed. ${detail}`);
+    }
+  });
 
   /* ---------------- Library: sources ---------------- */
 

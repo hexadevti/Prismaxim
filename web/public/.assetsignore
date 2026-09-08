@@ -1,6 +1,18 @@
 # Copied to out/.assetsignore by Next. Tells `wrangler deploy` (Workers Static
-# Assets) to skip files from the upload. The onnxruntime-web JSEP/WebGPU wasm is
-# ~26 MB — over Cloudflare's 25 MiB per-file limit — and is loaded from a CDN at
-# runtime instead (see lib/config.ts ORT_WASM_BASE_URL). Excluding it here keeps
-# the deploy under the limit; nothing requests the local copy.
+# Assets) which files to skip in the upload.
+#
+# NOTE: this repo currently deploys to Cloudflare *Pages*, which does NOT read
+# this file — its ignore list is hardcoded in wrangler. There the same exclusion
+# is done by deleting the files, in scripts/pages-prune.mjs. Keep the two in sync;
+# this file only matters if the deploy moves back to a Workers assets deploy.
+#
+# The build emits two ONNX Runtime wasm binaries, both over Cloudflare's 25 MiB
+# per-file asset limit and both loaded from a CDN at runtime instead:
+#   * ~26 MB — the app's own onnxruntime-web (Demucs separation). Its CDN base
+#     is set explicitly in lib/config.ts (ORT_WASM_BASE_URL).
+#   * ~21 MB — the copy Transformers.js bundles (Whisper lyrics). Transformers.js
+#     points onnxruntime-web at its own jsdelivr build by default, so it never
+#     requests the bundled file either.
+#
+# Excluding them keeps the deploy under the limit; nothing requests a local copy.
 _next/static/media/*.wasm

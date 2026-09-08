@@ -54,8 +54,8 @@ import {
   setClipFade,
   splitAt,
   trimClipEdge,
-  type Clipboard,
 } from '@/lib/editor/edits';
+import { getClipboard, setClipboard, useClipboard } from '@/lib/editor/clipboard';
 import { History } from '@/lib/editor/history';
 import { EditorEngine } from '@/lib/editor/engine';
 import { InputController } from '@/lib/editor/record';
@@ -170,25 +170,43 @@ const DEFAULT_FADE_SEC = 1;
 
 export default function Editor({
   initialProject,
+  initialDirty,
+  songId,
   title,
   onSaved,
   onDirtyChange,
+  onProjectChange,
   onImport,
   pendingImport,
 }: {
   initialProject: EditorProject;
+  /** Unsaved state to resume with. Switching tabs remounts the editor, so a tab
+   *  that was dirty must come back dirty — otherwise closing it stops warning. */
+  initialDirty?: boolean;
+  /** Identity of the open song, stable across remounts. Lets a paste tell audio
+   *  copied from this song from audio copied from another tab. */
+  songId?: string;
   title: string;
   onSaved?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Mirror of the live project for the shell — see the sync effect below. Must
+   *  be referentially stable, and must not re-render the shell (the editor is
+   *  reseeded from `initialProject`, so a render loop would rebuild the engine). */
+  onProjectChange?: (project: EditorProject) => void;
   /** Open the import window (wired by the shell). Absent → no Import button. */
   onImport?: () => void;
   /** Tracks to append to the live project; `token` changes per import request. */
   pendingImport?: { tracks: EditorTrack[]; token: number } | null;
 }) {
+  // What the clipboard records as the origin of a copy. Falls back to the title
+  // when the shell has no tabs (mobile, single-song use) — good enough there,
+  // since without tabs every paste is same-song anyway.
+  const sessionKey = songId ?? title;
+
   const [engine, setEngine] = useState<EditorEngine | null>(null);
   const [project, setProject] = useState<EditorProject>(() => initialProject);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirty] = useState(initialDirty ?? false);
   const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
   const [pxPerSec, setPxPerSec] = useState(20);
   const [scrollSec, setScrollSec] = useState(0);
@@ -202,7 +220,13 @@ export default function Editor({
   const viewportWidth = Math.max(0, containerWidth - sidebarWidth);
   const [playing, setPlaying] = useState(false);
   const [, setTimeSec] = useState(0);
-  const [hasClipboard, setHasClipboard] = useState(false);
+  // The clipboard lives outside this component so a copy survives the remount
+  // that switching songs causes — that is what makes cross-tab paste work.
+  const clipboard = useClipboard();
+  const hasClipboard = !!clipboard;
+  // Named only when the copy came from a different song, so the paste controls
+  // say where the audio is about to come from before it lands.
+  const pasteFrom = clipboard && clipboard.sourceId !== sessionKey ? clipboard.sourceTitle : undefined;
   const [exporting, setExporting] = useState<null | 'wav' | 'mp3'>(null);
   const [exportOpen, setExportOpen] = useState(false);
   // Mobile: the transport row keeps only play/new-track/save; everything else
@@ -284,7 +308,6 @@ export default function Editor({
   const [, forceHistory] = useState(0);
   const inputRef = useRef<InputController | null>(null);
   const metroRef = useRef<Metronome | null>(null);
-  const clipboardRef = useRef<Clipboard | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const recordStartRef = useRef(0);
   const recordTargetRef = useRef<string | null>(null);
@@ -382,10 +405,17 @@ export default function Editor({
     return () => window.removeEventListener('beforeunload', handler);
   }, [dirty]);
 
-  // Report dirty state up so the shell can confirm before replacing the project.
+  // Report dirty state up so the shell can confirm before closing the tab.
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
+
+  // Mirror the live project up to the shell. Only one editor is mounted at a
+  // time, so switching tabs unmounts this one — the shell keeps the latest
+  // project per tab and reseeds from it when the user comes back.
+  useEffect(() => {
+    onProjectChange?.(project);
+  }, [project, onProjectChange]);
 
   // Keep metronome settings in sync.
   useEffect(() => {
@@ -638,30 +668,36 @@ export default function Editor({
       sel.clipIds.length > 0
         ? copyClips(projectRef.current, sel.clipIds)
         : copyRange(projectRef.current, effSelection());
-    clipboardRef.current = cb;
-    setHasClipboard(!!cb);
-  }, [effSelection]);
+    if (cb) setClipboard(cb, title, sessionKey);
+  }, [effSelection, title, sessionKey]);
 
   const doCut = useCallback(() => {
     const sel = selectionRef.current;
     if (sel.clipIds.length > 0) {
       const cb = copyClips(projectRef.current, sel.clipIds);
-      clipboardRef.current = cb;
-      setHasClipboard(!!cb);
+      if (cb) setClipboard(cb, title, sessionKey);
       commit(deleteSelection(projectRef.current, sel));
       setSelection(EMPTY_SELECTION);
       return;
     }
-    const { project: next, clipboard } = cutRange(projectRef.current, effSelection());
-    clipboardRef.current = clipboard;
-    setHasClipboard(!!clipboard);
+    const { project: next, clipboard: cb } = cutRange(projectRef.current, effSelection());
+    if (cb) setClipboard(cb, title, sessionKey);
     commit(next);
-  }, [commit, effSelection]);
+  }, [commit, effSelection, title, sessionKey]);
 
   const doPaste = useCallback(() => {
-    if (!clipboardRef.current) return;
-    commit(paste(projectRef.current, clipboardRef.current, playheadSec()));
-  }, [commit]);
+    const held = getClipboard();
+    if (!held) return;
+    commit(
+      paste(projectRef.current, held.content, playheadSec(), {
+        // A single-track copy follows the user's selected track; a multi-track
+        // one is placed by stem so it can't all pile onto one lane.
+        preferTrackId: selectionRef.current.trackIds[0],
+        // Only label new tracks when the audio really came from another song.
+        sourceTitle: held.sourceId === sessionKey ? undefined : held.sourceTitle,
+      }),
+    );
+  }, [commit, sessionKey]);
 
   const doDelete = useCallback(() => {
     commit(deleteSelection(projectRef.current, effSelection()));
@@ -1985,6 +2021,7 @@ export default function Editor({
       canUndo={history.canUndo()}
       canRedo={history.canRedo()}
       canPaste={hasClipboard}
+      pasteFrom={pasteFrom}
       hasSelection={hasSelection}
       onZoomIn={() => zoomBy(1.4)}
       onZoomOut={() => zoomBy(0.71)}
@@ -2602,7 +2639,7 @@ export default function Editor({
               <Copy size={14} /> Copy
             </button>
             <button onClick={() => { doPaste(); setMenu(null); }} disabled={!hasClipboard}>
-              <ClipboardPaste size={14} /> Paste
+              <ClipboardPaste size={14} /> {pasteFrom ? `Paste from “${pasteFrom}”` : 'Paste'}
             </button>
             <button onClick={() => { doSplit(); setMenu(null); }}>
               <Split size={14} />{' '}

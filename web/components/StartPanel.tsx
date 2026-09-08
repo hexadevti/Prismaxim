@@ -1,15 +1,45 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import type { ExtractionEngine, JobConfig, SeparationEngine, SelectableStem } from '@prismaxim/shared';
+import { useEffect, useRef, useState } from 'react';
+import type {
+  ExtractionEngine,
+  JobConfig,
+  SeparationEngine,
+  SelectableStem,
+  YouTubeSearchResult,
+} from '@prismaxim/shared';
 import { checkBackend } from '@/lib/engines/client';
 import { IS_DESKTOP, IS_MOBILE } from '@/lib/env';
 import { cloudConfigured } from '@/lib/cloudConfig';
+import { searchYouTube } from '@/lib/library';
 import { addToHistory, getHistory, removeFromHistory, type HistoryEntry } from '@/lib/history';
 import StemPicker from './StemPicker';
 
 type InputKind = 'youtube' | 'file';
+/** How the user names a YouTube video: search by song name, or paste a URL. */
+type YouTubeMode = 'search' | 'link';
+/** Where a finished import lands: its own tab, or appended to the open project. */
 export type ImportMode = 'new' | 'add';
+
+/** 245 → "4:05". Undefined duration renders nothing. */
+function formatDuration(seconds?: number): string | null {
+  if (!seconds || !Number.isFinite(seconds)) return null;
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
+/** 875106068 → "875M views". */
+function formatViews(views?: number): string | null {
+  if (!views || !Number.isFinite(views)) return null;
+  if (views >= 1e9) return `${(views / 1e9).toFixed(1)}B views`;
+  if (views >= 1e6) return `${Math.round(views / 1e6)}M views`;
+  if (views >= 1e3) return `${Math.round(views / 1e3)}K views`;
+  return `${views} views`;
+}
 
 export interface StartPanelProps {
   onStart: (config: JobConfig, file: File | null, mode: ImportMode) => void;
@@ -43,9 +73,63 @@ function Segmented<T extends string>({
   );
 }
 
+/**
+ * The chosen search hit, with a link out to YouTube so a song can be checked
+ * before committing to a download + separation run.
+ *
+ * Deliberately not an inline player. The app serves itself with
+ * `COEP: credentialless` — cross-origin isolation is what gives onnxruntime-web
+ * its SharedArrayBuffer threads — and an embedded YouTube frame does not play
+ * reliably under it. The link opens in the system browser instead: the desktop
+ * window denies in-app navigation and hands the URL to the OS (see
+ * setWindowOpenHandler in desktop/main.mjs).
+ */
+function YouTubePreview({ result }: { result: YouTubeSearchResult }) {
+  const meta = [
+    formatDuration(result.durationSeconds),
+    result.uploader,
+    formatViews(result.viewCount),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <a
+      className="yt-preview"
+      href={result.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Watch on YouTube in your browser"
+    >
+      <span className="yt-preview-thumb">
+        {result.thumbnailUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={result.thumbnailUrl} alt="" loading="lazy" />
+        )}
+        <span className="yt-preview-play" aria-hidden="true" />
+      </span>
+      <span className="yt-preview-info">
+        <span className="yt-preview-title">{result.title}</span>
+        {meta && <span className="yt-preview-meta">{meta}</span>}
+        <span className="yt-preview-link">Watch on YouTube ↗</span>
+      </span>
+    </a>
+  );
+}
+
 export default function StartPanel({ onStart, backendUrl, canAddToProject }: StartPanelProps) {
   const [inputKind, setInputKind] = useState<InputKind>(IS_DESKTOP ? 'youtube' : 'file');
   const [url, setUrl] = useState('');
+  // YouTube by search (default) or by pasted link.
+  const [ytMode, setYtMode] = useState<YouTubeMode>('search');
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<YouTubeSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  /** The query whose results are on screen — drives the "no results" message. */
+  const [searchedFor, setSearchedFor] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<YouTubeSearchResult | null>(null);
+  // Ignore a slow search that a newer one has already superseded.
+  const searchSeq = useRef(0);
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [extraction, setExtraction] = useState<ExtractionEngine>('backend');
@@ -72,6 +156,14 @@ export default function StartPanel({ onStart, backendUrl, canAddToProject }: Sta
   useEffect(() => {
     setHistory(getHistory());
   }, []);
+
+  // A pick that survives into a new result set stays selected; otherwise drop it,
+  // so the tick and the preview never disagree with the list on screen.
+  useEffect(() => {
+    if (!chosen || results.some((r) => r.videoId === chosen.videoId)) return;
+    setChosen(null);
+    setUrl('');
+  }, [results, chosen]);
 
   useEffect(() => {
     // WebGPU capability only matters for the pure-web build; a mobile WebView
@@ -112,8 +204,37 @@ export default function StartPanel({ onStart, backendUrl, canAddToProject }: Sta
     (inputKind === 'file' && !!file) || (inputKind === 'youtube' && url.trim().length > 0);
   const willSeparate = stems.length > 0;
 
+  async function runSearch() {
+    const q = query.trim();
+    if (!q || searching) return;
+    const seq = ++searchSeq.current;
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const found = await searchYouTube(backendUrl.replace(/\/$/, ''), q);
+      if (seq !== searchSeq.current) return; // superseded by a newer search
+      setResults(found);
+      setSearchedFor(q);
+    } catch (err) {
+      if (seq !== searchSeq.current) return;
+      setResults([]);
+      setSearchedFor(q);
+      setSearchError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (seq === searchSeq.current) setSearching(false);
+    }
+  }
+
+  /** Pick a search hit: that's the whole choice — the rest of the flow is unchanged. */
+  function choose(result: YouTubeSearchResult) {
+    setChosen(result);
+    setUrl(result.url);
+  }
+
   function start(mode: ImportMode) {
-    if (inputKind === 'youtube') setHistory(addToHistory(url.trim()));
+    // Remember the title too when the URL came from a search hit, so the recent
+    // chips read as song names rather than watch URLs.
+    if (inputKind === 'youtube') setHistory(addToHistory(url.trim(), chosen?.title));
     const localEngine: SeparationEngine = IS_DESKTOP ? 'backend' : 'browser';
     const separation: SeparationEngine = cloudActive ? 'cloud' : localEngine;
     const config: JobConfig = {
@@ -149,44 +270,157 @@ export default function StartPanel({ onStart, backendUrl, canAddToProject }: Sta
       {inputKind === 'youtube' ? (
         <>
           <div className="field">
-            <label htmlFor="yturl">YouTube URL</label>
-            <input
-              id="yturl"
-              type="url"
-              placeholder="https://www.youtube.com/watch?v=…"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
+            <Segmented
+              value={ytMode}
+              onChange={setYtMode}
+              options={[
+                { value: 'search', label: 'Search by name' },
+                { value: 'link', label: 'Paste a link' },
+              ]}
             />
-            {history.length > 0 && (
-              <div style={{ marginTop: 8 }}>
-                <div className="hint" style={{ marginBottom: 4 }}>
-                  Recent links:
-                </div>
-                <div className="row" style={{ gap: 6 }}>
-                  {history.slice(0, 8).map((h) => (
-                    <span key={h.url} className="chip">
-                      <button
-                        type="button"
-                        className="chip-main"
-                        title={h.url}
-                        onClick={() => setUrl(h.url)}
-                      >
-                        {h.title || h.url.replace(/^https?:\/\/(www\.)?/, '')}
-                      </button>
-                      <button
-                        type="button"
-                        className="chip-x"
-                        title="Remove"
-                        onClick={() => setHistory(removeFromHistory(h.url))}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
+
+          {ytMode === 'search' ? (
+            <div className="field">
+              <label htmlFor="ytq">Song or artist</label>
+              <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+                <input
+                  id="ytq"
+                  type="search"
+                  placeholder="e.g. tears for fears everybody wants to rule the world"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void runSearch();
+                    }
+                  }}
+                  style={{ flex: 1, minWidth: 0 }}
+                />
+                <button
+                  type="button"
+                  className="btn secondary"
+                  disabled={!query.trim() || searching || backendUp === false}
+                  onClick={() => void runSearch()}
+                >
+                  {searching ? 'Searching…' : 'Search'}
+                </button>
+              </div>
+
+              {searchError && (
+                <p className="err" style={{ marginTop: 8 }}>
+                  {searchError}
+                </p>
+              )}
+
+              {!searchError && !searching && searchedFor && results.length === 0 && (
+                <p className="hint" style={{ marginTop: 8 }}>
+                  No results for “{searchedFor}”.
+                </p>
+              )}
+
+              {results.length > 0 && (
+                <>
+                  <div className="yt-results">
+                    {results.map((r) => {
+                      const picked = chosen?.videoId === r.videoId;
+                      const meta = [r.uploader, formatDuration(r.durationSeconds), formatViews(r.viewCount)]
+                        .filter(Boolean)
+                        .join(' · ');
+                      return (
+                        <button
+                          key={r.videoId}
+                          type="button"
+                          className={`lib-item yt-result${picked ? ' picked' : ''}`}
+                          aria-pressed={picked}
+                          onClick={() => choose(r)}
+                        >
+                          {r.thumbnailUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              className="lib-thumb"
+                              src={r.thumbnailUrl}
+                              alt=""
+                              loading="lazy"
+                              onError={(e) => {
+                                e.currentTarget.style.visibility = 'hidden';
+                              }}
+                            />
+                          ) : null}
+                          <span className="lib-info yt-result-info">
+                            <span className="yt-result-title">{r.title}</span>
+                            {meta && <span className="yt-result-meta">{meta}</span>}
+                          </span>
+                          <span className="yt-result-mark" aria-hidden="true">
+                            {picked ? '✓' : ''}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {chosen ? (
+                    <YouTubePreview result={chosen} />
+                  ) : (
+                    <p className="hint" style={{ marginTop: 8 }}>
+                      Pick a song — the app handles the download and the rest.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="field">
+              <label htmlFor="yturl">YouTube URL</label>
+              <input
+                id="yturl"
+                type="url"
+                placeholder="https://www.youtube.com/watch?v=…"
+                value={url}
+                onChange={(e) => {
+                  setUrl(e.target.value);
+                  setChosen(null); // a hand-typed URL is no longer the search pick
+                }}
+              />
+            </div>
+          )}
+
+          {history.length > 0 && (
+            <div className="field">
+              <div className="hint" style={{ marginBottom: 4 }}>
+                Recent links:
+              </div>
+              <div className="row" style={{ gap: 6 }}>
+                {history.slice(0, 8).map((h) => (
+                  <span key={h.url} className="chip">
+                    <button
+                      type="button"
+                      className="chip-main"
+                      title={h.url}
+                      onClick={() => {
+                        // Show what was picked: the link field is where a bare
+                        // URL is visible, so reveal it rather than leaving the
+                        // search results contradicting the selection.
+                        setUrl(h.url);
+                        setChosen(null);
+                        setYtMode('link');
+                      }}
+                    >
+                      {h.title || h.url.replace(/^https?:\/\/(www\.)?/, '')}
+                    </button>
+                    <button
+                      type="button"
+                      className="chip-x"
+                      title="Remove"
+                      onClick={() => setHistory(removeFromHistory(h.url))}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="field">
             <label>Extraction engine</label>
             <Segmented
@@ -312,8 +546,8 @@ export default function StartPanel({ onStart, backendUrl, canAddToProject }: Sta
             value={importMode}
             onChange={setImportMode}
             options={[
-              { value: 'new', label: 'New project' },
-              { value: 'add', label: 'Add to open project' },
+              { value: 'new', label: 'New tab' },
+              { value: 'add', label: 'Add to this project' },
             ]}
           />
         </div>

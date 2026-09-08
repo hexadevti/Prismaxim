@@ -1,23 +1,31 @@
 {
-  // Cloudflare Workers "Static Assets" config for the 100% static web build.
+  // Cloudflare Pages config for the 100% static web build.
   //
-  // `wrangler deploy` runs `build.command` first (producing web/out via Next's
-  // static export), then uploads web/out as an assets-only Worker (no server
-  // code). Because the build is defined here, the deploy is self-contained and
-  // does NOT depend on the dashboard "Build command" being set correctly — the
-  // dashboard command can be left at its default (or blanked to skip a
-  // redundant build). web/out/_headers carries the COOP/COEP cross-origin
-  // isolation headers onnxruntime-web (SharedArrayBuffer) + the AudioWorklet
-  // need. The ~26 MB ORT/WebGPU wasm is loaded from a CDN at runtime and
-  // dropped from the upload (see web/public/.assetsignore + lib/config.ts).
+  // Deploy from the repo root with `npm run deploy`, which runs three steps:
+  //   1. `npm run build:static -w web`  — Next static export → web/out
+  //   2. `node scripts/pages-prune.mjs` — drop the CDN-loaded ORT wasm (below)
+  //   3. `wrangler pages deploy`        — upload web/out to the Pages project
+  //
+  // Steps 1 and 2 are NOT part of this file because, unlike a Workers deploy,
+  // Pages has no `build.command` hook — so run `npm run deploy` rather than
+  // calling `wrangler pages deploy` directly, or you will upload a stale or
+  // unpruned web/out.
+  //
+  // Headers: Pages reads web/out/_headers (from web/public/_headers) and applies
+  // the COOP/COEP cross-origin isolation pair that onnxruntime-web
+  // (SharedArrayBuffer) and the AudioWorklet recorder require. It is treated as
+  // configuration, not uploaded as an asset.
+  //
+  // The 25 MiB per-file limit: the build emits two ONNX Runtime wasm binaries
+  // (~26 MB for the app's own onnxruntime-web, ~21 MB for the copy
+  // Transformers.js bundles) that both exceed it. Pages aborts the entire upload
+  // on an oversized file and — unlike Workers Static Assets — does NOT read
+  // `.assetsignore`; its ignore list is hardcoded. So they are physically
+  // deleted by scripts/pages-prune.mjs. Both runtimes load from a CDN at
+  // runtime, so nothing requests the local copies.
   "$schema": "node_modules/wrangler/config-schema.json",
-  // MUST match the Worker name you created in the dashboard. Rename here if yours differs.
+  // MUST match the Pages project name in the Cloudflare dashboard.
   "name": "prismaxim",
-  "compatibility_date": "2026-06-01",
-  "build": {
-    "command": "npm run build:static -w web"
-  },
-  "assets": {
-    "directory": "./web/out"
-  }
+  "compatibility_date": "2026-09-01",
+  "pages_build_output_dir": "./web/out"
 }

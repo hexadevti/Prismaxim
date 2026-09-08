@@ -7,15 +7,20 @@
 Extract audio from a **YouTube link** or an **uploaded file**, split it into 6 stems with
 **Demucs (`htdemucs_6s`)**, and work with them in a **clip-based multitrack editor** — per-track
 waveform + live spectrum, cut / move / trim / **record** on a timeline, **audio → MIDI** with a
-sampled General-MIDI instrument bank, tempo / chord / key detection, a **pitch-preserving speed
-control** for practice, and export to WAV / MP3.
+sampled General-MIDI instrument bank, tempo / chord / key detection, **vocals → time-stamped
+lyrics** (Whisper) exportable as `.lrc` / `.srt`, a **pitch-preserving speed control** for practice,
+and export to WAV / MP3.
+
+**▶ Live: [prismaxim.pages.dev](https://prismaxim.pages.dev)** — the full app, running entirely in
+your browser. Your audio never leaves the machine. Chrome/Edge desktop.
 
 Ships two ways:
 
 - **Web app (100% in-browser, serverless)** — separation runs in the browser with
   **onnxruntime-web + WebGPU** (WASM fallback) and the library is stored locally in
   **IndexedDB + OPFS**. Input is **file upload only**. No backend, no install; Chrome/Edge.
-  See [web/DEPLOY.md](web/DEPLOY.md).
+  Deployed to **Cloudflare Pages** at [prismaxim.pages.dev](https://prismaxim.pages.dev) —
+  see [web/DEPLOY.md](web/DEPLOY.md).
 - **Windows desktop app** (see [DESKTOP.md](DESKTOP.md)) — bundles a local Node backend for
   **native separation** (onnxruntime-node) and **YouTube import** (yt-dlp, using your own
   residential IP). The library lives on disk.
@@ -41,6 +46,9 @@ shared/   runtime-agnostic TS: Demucs pipeline, stem defs, types (used by web + 
 web/      Next.js (React/TS) frontend + browser engines + Web Audio editor
 server/   optional Node/TS (Fastify) backend: extraction, CORS proxy, native separation
 desktop/  Electron app that bundles the backend + UI into one Windows program
+mobile/   Capacitor shell wrapping the same static web build for iOS/Android
+cloud/    optional stateless GPU separation endpoint (Modal/RunPod)
+scripts/  build/deploy helpers (e.g. pruning CDN-loaded wasm before a Pages upload)
 ```
 
 ## Prerequisites
@@ -97,6 +105,11 @@ on the WASM fallback.
 |---|---|---|---|
 | `NEXT_PUBLIC_MODEL_URL` | web | HF `StemSplitio/htdemucs-6s-onnx` | ONNX model URL (browser) |
 | `NEXT_PUBLIC_BACKEND_URL` | web | `http://localhost:8787` | backend base URL |
+| `NEXT_PUBLIC_ORT_WASM_BASE` | web | jsDelivr `onnxruntime-web@1.27.0` | where the ORT wasm runtime loads from — **must match** the installed `onnxruntime-web` |
+| `NEXT_PUBLIC_WHISPER_MODEL_ID` | web | `onnx-community/whisper-base` | Whisper model for lyrics (`whisper-tiny` is faster on weak devices) |
+| `NEXT_PUBLIC_BASIC_PITCH_MODEL_URL` | web | `/models/basic-pitch/model.json` | audio→MIDI model (self-hosted, same-origin) |
+| `NEXT_PUBLIC_CLOUD_SEPARATE_URL` | web | *(empty)* | optional GPU endpoint; empty hides the "Cloud (fast)" toggle |
+| `NEXT_PUBLIC_CLOUD_TOKEN` | web | *(empty)* | bearer token for the above, if it needs one |
 | `MODEL_URL` / `MODEL_DIR` | server | same HF model | model source / on-disk cache |
 | `ORT_EP` | server | `cpu` | onnxruntime EP (`cpu`, or `dml` for Intel Arc if a DirectML build is installed) |
 | `PORT` | server | `8787` | backend port |
@@ -111,8 +124,17 @@ on the WASM fallback.
   bundles everything (UI + backend + native separation) into one program. Runs locally, so YouTube
   import works from your own IP. See [DESKTOP.md](DESKTOP.md).
 - **Web app (serverless)** — `web/` deploys as a 100% static, backend-free site: WebGPU separation +
-  IndexedDB/OPFS library + file upload. `npm run build:static -w web` → `web/out`, hosted on any
-  static host that can send the COOP/COEP headers (Vercel/Netlify/Cloudflare Pages). See
+  IndexedDB/OPFS library + file upload. Live on **Cloudflare Pages**:
+
+  ```bash
+  npm run deploy         # build → prune → wrangler pages deploy
+  ```
+
+  The one non-obvious step is the prune. The export emits two ONNX Runtime wasm binaries (~26 MB for
+  separation, ~21 MB for Whisper) that are **both over Cloudflare's 25 MiB per-file limit**, and
+  Pages aborts the whole upload when it meets one — it does *not* read `.assetsignore`. Both load
+  from a CDN at runtime, so `scripts/pages-prune.mjs` deletes them before the upload. Any other
+  static host works too, as long as it sends the COOP/COEP headers. See
   [web/DEPLOY.md](web/DEPLOY.md). YouTube import is **desktop-only**.
 
 ## Editor & recording
@@ -129,6 +151,19 @@ timeline:
 - **Zoom** with `Ctrl`+scroll (anchored at the cursor) or the toolbar ±; **pan** with scroll / the
   bottom scrollbar; a time **ruler** stays in sync. `Space` toggles play.
 - **Export** the edited arrangement to WAV/MP3 (clip positions, gaps, and recordings honored).
+
+### Tabs & the project file
+
+Several songs can be open at once, one per **tab**. `＋` opens another song alongside the current
+one — or an empty project, to build something from scratch or to paste parts of other songs into
+without either having to be the host. **Add song…** folds another open song into the current
+project as extra tracks. Tabs with unsaved edits show a dot and confirm before closing.
+
+**Save** writes every open tab — arrangements *and* the audio they play — into a single `.pxproj`
+file you own, so a session reopens months later exactly as you left it. (This is separate from the
+library, which stores songs one at a time in app-managed storage.) On Chromium — so always in the
+desktop app — the File System Access API gives a real Save-As dialog and a handle, so **Save**
+overwrites the same file; elsewhere it degrades to a normal download and re-picking the file.
 
 ### Recording (mic / M-Vave Tank-G)
 
@@ -158,6 +193,12 @@ something else.
   via [smplr](https://github.com/danigb/smplr) — pick the instrument on the MIDI lane; samples load
   from smplr's CDN on first use (cached), with the built-in oscillator as an instant fallback while
   they load. Clean tidies the notes; right-click → Export `.mid` (with the matching GM program).
+- **Vocals → lyrics** uses **Whisper** via
+  [Transformers.js](https://github.com/huggingface/transformers.js), in-browser (WebGPU, WASM
+  fallback). Run it on the **isolated vocals stem** — results on a full mix are noticeably worse. The
+  model downloads from the Hugging Face Hub on first use and is cached; output is time-stamped
+  segments that drive the captions strip and export to `.lrc` / `.srt`. Accuracy varies with the
+  recording, and transcription is a starting point, not a finished lyric sheet.
 - **Audio → MIDI** uses [Spotify Basic Pitch](https://github.com/spotify/basic-pitch) (neural,
   polyphonic, in-browser). Neural transcription inherently invents some notes from harmonics/noise,
   so 🎹 opens options to keep it clean: **Sensitivity** (Cleaner/Balanced/Detailed thresholds), a
@@ -171,7 +212,9 @@ something else.
   Optimised for the musical range (~55 Hz–5 kHz); a pure sub-bass tone at exactly half speed can
   octave-slip, and sharp percussion softens/doubles slightly when slowed a lot (inherent to WSOLA —
   mute the drum stem if it bothers you).
-- Cross-origin isolation headers (COOP/COEP) are set in `web/next.config.ts`. COEP is
+- Cross-origin isolation headers (COOP/COEP) come from `web/next.config.ts` on a Next server (dev,
+  Vercel/Netlify) and from `web/public/_headers` in the static export, since `output: 'export'`
+  drops `headers()` — Cloudflare Pages applies that file. COEP is
   **`credentialless`** (not `require-corp`) so the page stays cross-origin isolated (SharedArrayBuffer
   for onnxruntime-web + the AudioWorklet recorder) **and** smplr's cross-origin samples can load —
   **Chrome/Edge** (Safari doesn't support `credentialless`). The backend sends

@@ -13,6 +13,19 @@ export type InputSource =
   | { kind: 'youtube'; url: string; extraction: ExtractionEngine }
   | { kind: 'file'; fileName: string };
 
+/** One hit from a YouTube search (GET /youtube/search). Metadata only. */
+export interface YouTubeSearchResult {
+  videoId: string;
+  /** Canonical watch URL — feed straight back into a youtube JobConfig input. */
+  url: string;
+  title: string;
+  durationSeconds?: number;
+  uploader?: string;
+  viewCount?: number;
+  /** Remote YouTube thumbnail URL (i.ytimg.com), not a stored asset. */
+  thumbnailUrl?: string;
+}
+
 export interface JobConfig {
   input: InputSource;
   separation: SeparationEngine;
