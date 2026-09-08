@@ -1,11 +1,6 @@
 # Copied to out/.assetsignore by Next. Tells `wrangler deploy` (Workers Static
 # Assets) which files to skip in the upload.
 #
-# NOTE: this repo currently deploys to Cloudflare *Pages*, which does NOT read
-# this file — its ignore list is hardcoded in wrangler. There the same exclusion
-# is done by deleting the files, in scripts/pages-prune.mjs. Keep the two in sync;
-# this file only matters if the deploy moves back to a Workers assets deploy.
-#
 # The build emits two ONNX Runtime wasm binaries, both over Cloudflare's 25 MiB
 # per-file asset limit and both loaded from a CDN at runtime instead:
 #   * ~26 MB — the app's own onnxruntime-web (Demucs separation). Its CDN base

@@ -11,15 +11,16 @@ sampled General-MIDI instrument bank, tempo / chord / key detection, **vocals �
 lyrics** (Whisper) exportable as `.lrc` / `.srt`, a **pitch-preserving speed control** for practice,
 and export to WAV / MP3.
 
-**▶ Live: [prismaxim.pages.dev](https://prismaxim.pages.dev)** — the full app, running entirely in
-your browser. Your audio never leaves the machine. Chrome/Edge desktop.
+**▶ Live:** deployed to **Cloudflare Workers** — the full app, running entirely in your browser.
+Your audio never leaves the machine. Chrome/Edge desktop.
+<!-- TODO: paste the deployed URL here (https://prismaxim.<your-subdomain>.workers.dev, or a custom domain). -->
 
 Ships two ways:
 
 - **Web app (100% in-browser, serverless)** — separation runs in the browser with
   **onnxruntime-web + WebGPU** (WASM fallback) and the library is stored locally in
   **IndexedDB + OPFS**. Input is **file upload only**. No backend, no install; Chrome/Edge.
-  Deployed to **Cloudflare Pages** at [prismaxim.pages.dev](https://prismaxim.pages.dev) —
+  Deployed to **Cloudflare Workers** as an assets-only Worker —
   see [web/DEPLOY.md](web/DEPLOY.md).
 - **Windows desktop app** (see [DESKTOP.md](DESKTOP.md)) — bundles a local Node backend for
   **native separation** (onnxruntime-node) and **YouTube import** (yt-dlp, using your own
@@ -48,7 +49,6 @@ server/   optional Node/TS (Fastify) backend: extraction, CORS proxy, native sep
 desktop/  Electron app that bundles the backend + UI into one Windows program
 mobile/   Capacitor shell wrapping the same static web build for iOS/Android
 cloud/    optional stateless GPU separation endpoint (Modal/RunPod)
-scripts/  build/deploy helpers (e.g. pruning CDN-loaded wasm before a Pages upload)
 ```
 
 ## Prerequisites
@@ -124,18 +124,19 @@ on the WASM fallback.
   bundles everything (UI + backend + native separation) into one program. Runs locally, so YouTube
   import works from your own IP. See [DESKTOP.md](DESKTOP.md).
 - **Web app (serverless)** — `web/` deploys as a 100% static, backend-free site: WebGPU separation +
-  IndexedDB/OPFS library + file upload. Live on **Cloudflare Pages**:
+  IndexedDB/OPFS library + file upload. Live on **Cloudflare Workers** (static assets):
 
   ```bash
-  npm run deploy         # build → prune → wrangler pages deploy
+  npm run deploy         # wrangler deploy — builds web/out, then uploads it
   ```
 
-  The one non-obvious step is the prune. The export emits two ONNX Runtime wasm binaries (~26 MB for
-  separation, ~21 MB for Whisper) that are **both over Cloudflare's 25 MiB per-file limit**, and
-  Pages aborts the whole upload when it meets one — it does *not* read `.assetsignore`. Both load
-  from a CDN at runtime, so `scripts/pages-prune.mjs` deletes them before the upload. Any other
-  static host works too, as long as it sends the COOP/COEP headers. See
-  [web/DEPLOY.md](web/DEPLOY.md). YouTube import is **desktop-only**.
+  The build is declared in `wrangler.jsonc`, so that one command is the whole deploy. Note that the
+  export emits two ONNX Runtime wasm binaries (~26 MB for separation, ~21 MB for Whisper) that are
+  **both over Cloudflare's 25 MiB per-file limit**; both are fetched from a CDN at runtime and
+  dropped from the upload by `web/public/.assetsignore`. Cloudflare *Pages* does not read that file
+  and refuses the oversized assets, which is why this deploys as a Worker. Any other static host
+  works too, as long as it sends the COOP/COEP headers. See [web/DEPLOY.md](web/DEPLOY.md).
+  YouTube import is **desktop-only**.
 
 ## Editor & recording
 
@@ -214,7 +215,7 @@ something else.
   mute the drum stem if it bothers you).
 - Cross-origin isolation headers (COOP/COEP) come from `web/next.config.ts` on a Next server (dev,
   Vercel/Netlify) and from `web/public/_headers` in the static export, since `output: 'export'`
-  drops `headers()` — Cloudflare Pages applies that file. COEP is
+  drops `headers()` — Cloudflare Workers Static Assets applies that file. COEP is
   **`credentialless`** (not `require-corp`) so the page stays cross-origin isolated (SharedArrayBuffer
   for onnxruntime-web + the AudioWorklet recorder) **and** smplr's cross-origin samples can load —
   **Chrome/Edge** (Safari doesn't support `credentialless`). The backend sends

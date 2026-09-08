@@ -9,8 +9,8 @@ desktop-only).
 > **Browser support:** Chrome/Edge (desktop). Needs WebGPU for reasonable speed,
 > `credentialless` COEP, and OPFS. Safari/Firefox are not supported.
 
-**This repo is configured for Cloudflare Pages** — see
-[Option C](#option-c--cloudflare-pages-this-repos-setup), which is the path
+**This repo is configured for Cloudflare Workers** (static assets) — see
+[Option C](#option-c--cloudflare-workers-this-repos-setup), which is the path
 [wrangler.jsonc](../wrangler.jsonc) implements. Options A and B describe the
 generic alternatives.
 
@@ -65,58 +65,62 @@ headers:
   use the [`coi-serviceworker`](https://github.com/gzuidhof/coi-serviceworker)
   shim (a service worker that re-serves the page isolated) as a fallback.
 
-## Option C — Cloudflare Pages (this repo's setup)
+## Option C — Cloudflare Workers (this repo's setup)
 
-[wrangler.jsonc](../wrangler.jsonc) at the repo root deploys `web/out` to the
-**`prismaxim` Pages project** (`https://prismaxim.pages.dev`) as a direct upload —
-no git integration, no build on Cloudflare's side. Deploy from the repo root:
+[wrangler.jsonc](../wrangler.jsonc) at the repo root deploys `web/out` as an
+**assets-only Worker** — static assets, no server code. The build is declared in
+the config, so the deploy is self-contained:
 
 ```bash
-npm run deploy          # build → prune → wrangler pages deploy
-npm run deploy:build    # build + prune only, to inspect web/out first
+npm run deploy        # runs build.command, then uploads web/out
+npm run deploy:dry    # same, but checks the upload without publishing
 ```
 
-Pages has **no `build.command` hook** (that is a Workers feature), so the build
-and prune steps live in the npm script. Run `npm run deploy` rather than calling
-`wrangler pages deploy` directly, or you will upload a stale or unpruned
-`web/out`.
+`build.command` runs `npm run build:static -w web`, so `wrangler deploy` alone is
+enough — no separate build step. The `name` in `wrangler.jsonc` must match the
+Worker in your Cloudflare dashboard.
 
-Authentication is via `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` in the
-environment (or an interactive `npx wrangler login`).
+**Git-connected builds.** In the dashboard's *Import a repository* flow, set the
+**Deploy command** to `npx wrangler deploy` and leave the **Build command
+blank** — `build.command` already builds, so filling that field just builds
+twice. (`npm run deploy:build` is available if the field cannot be left empty.)
 
-**Headers.** Pages reads [public/_headers](public/_headers) (copied to `out/` by
-Next) and applies the COOP/COEP pair as configuration rather than uploading it as
-an asset — so the deployed site is cross-origin isolated even though
-`output: 'export'` drops Next's own `headers()`. Verify after a deploy:
+**Headers.** Workers Static Assets applies [public/_headers](public/_headers)
+(copied to `out/` by Next), which sends the COOP/COEP pair above — so the
+deployed site is cross-origin isolated even though `output: 'export'` drops
+Next's own `headers()`. Verify after a deploy:
 
 ```bash
-curl -sI https://prismaxim.pages.dev/ | grep -i cross-origin
+curl -sI https://<your-worker-url>/ | grep -i cross-origin
 # cross-origin-embedder-policy: credentialless
 # cross-origin-opener-policy: same-origin
 ```
 
-**The 25 MiB per-file limit.** The build emits two ONNX Runtime wasm binaries
-that each exceed it, and Pages **aborts the entire upload** when it walks one:
+**The 25 MiB per-file asset limit.** The build emits two ONNX Runtime wasm
+binaries that each exceed it, and both are excluded from the upload by
+[public/.assetsignore](public/.assetsignore):
 
 | Binary | Size | Loaded at runtime from |
 |---|---|---|
 | app's `onnxruntime-web` (Demucs separation) | ~26 MB | jsDelivr, via `ORT_WASM_BASE_URL` in [lib/config.ts](lib/config.ts) |
 | Transformers.js's bundled copy (Whisper lyrics) | ~21 MB | jsDelivr, via Transformers.js's own `wasmPaths` default |
 
-Neither is ever requested locally, so both are deleted from `web/out` before the
-upload by [scripts/pages-prune.mjs](../scripts/pages-prune.mjs), which also fails
-the deploy if any *other* oversized file appears.
+Nothing requests the local copies, so dropping them is safe — but if you ever
+self-host either runtime, remove the matching `.assetsignore` glob. Note that
+`ORT_WASM_BASE_URL` is pinned to a version that **must match** the installed
+`onnxruntime-web`; bump both together.
 
-> **Note:** Pages does **not** read `.assetsignore` — that is Workers Static
-> Assets only, and its Pages ignore list is hardcoded in wrangler. Deleting the
-> files is the only way to exclude them. [public/.assetsignore](public/.assetsignore)
-> is kept for a possible Workers deploy; on Pages the prune script is what counts.
+> **Why Workers and not Pages?** Cloudflare *Pages* does not read
+> `.assetsignore` — its ignore list is hardcoded — and it aborts the whole
+> upload on any file over 25 MiB. Deploying this build to Pages therefore means
+> physically deleting those two wasm files first. Workers Static Assets honours
+> `.assetsignore`, so no extra step is needed.
 
-**Build-time env vars.** `NEXT_PUBLIC_*` values are baked in at build time, and
-because this is a direct upload the build runs **on your machine** — so
-`web/.env.local` (gitignored) is what applies. Set
-`NEXT_PUBLIC_CLOUD_SEPARATE_URL` / `NEXT_PUBLIC_CLOUD_TOKEN` there to enable
-"Cloud (fast)" mode; without them the toggle is simply hidden.
+**Build-time env vars.** `NEXT_PUBLIC_*` values are baked in at build time. Local
+builds read `web/.env.local` (gitignored), which Cloudflare does not have — set
+`NEXT_PUBLIC_CLOUD_SEPARATE_URL` / `NEXT_PUBLIC_CLOUD_TOKEN` as build variables
+in the dashboard if you want "Cloud (fast)" mode on the deployed site. Without
+them the toggle is simply hidden.
 
 ## Notes
 

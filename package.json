@@ -17,8 +17,9 @@
     "build:mobile": "npm run build -w shared && npm run build:mobile -w web",
     "sync:mobile": "npm run build:mobile && npm run sync -w mobile",
     "lint": "npm run lint -w web",
-    "deploy": "npm run deploy:build && wrangler pages deploy --commit-dirty=true",
-    "deploy:build": "npm run build:static -w web && node scripts/pages-prune.mjs"
+    "deploy": "wrangler deploy",
+    "deploy:dry": "wrangler deploy --dry-run",
+    "deploy:build": "npm run build:static -w web"
   },
   "engines": {
     "node": ">=20"
