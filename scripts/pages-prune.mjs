@@ -21,8 +21,11 @@
  */
 import { readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const OUT = path.resolve(import.meta.dirname, '..', 'web', 'out');
+// Not `import.meta.dirname` — that needs Node >= 20.11 and package.json allows >= 20.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const OUT = path.resolve(HERE, '..', 'web', 'out');
 const MAX_ASSET_SIZE = 25 * 1024 * 1024;
 
 /** Files to delete before uploading, relative to web/out (posix separators). */
